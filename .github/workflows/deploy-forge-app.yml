@@ -1,0 +1,75 @@
+name: Deploy Atlassian Forge App
+
+on:
+  push:
+    branches:
+      - main # Triggers deployment when code is merged to the main branch
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm test
+
+  deploy-and-install:
+    name: Deploy & Install (Staging)
+    runs-on: ubuntu-latest
+    needs: test # Only deploy when tests pass
+
+    # These exact environment variables are intercepted by the Forge CLI
+    # to authenticate the headless session.
+    env:
+      FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+      FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Install Atlassian Forge CLI
+        run: npm install -g @forge/cli
+
+      - name: Disable Forge Usage Analytics (CI standard)
+        run: forge settings set usage-analytics false
+
+      - name: Lint Forge Code
+        run: forge lint
+
+      - name: Deploy to Staging Environment
+        run: forge deploy -e staging
+
+      - name: Upgrade Installation on Workspace
+        # The --non-interactive flag prevents the pipeline from hanging on UI prompts.
+        # The --upgrade flag updates the code on the existing workspace installation.
+        # NOTE: The app must have been deployed and installed manually at least once
+        # before this step will succeed (see README for first-time setup instructions).
+        run: |
+          forge install \
+            --upgrade \
+            --product bitbucket \
+            --environment staging \
+            --non-interactive

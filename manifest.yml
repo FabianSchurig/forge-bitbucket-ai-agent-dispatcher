@@ -1,0 +1,35 @@
+modules:
+  trigger:
+    - key: pr-comment-trigger
+      function: run-dispatcher
+      events:
+        - avi:bitbucket:created:pullrequest:comment
+
+  bitbucket:workspaceSettings:settingsPage:
+    - key: settings-page
+      function: settings-renderer
+      title: AI Agent Dispatcher Settings
+      resolver:
+        function: settings-resolver
+
+  function:
+    - key: run-dispatcher
+      handler: src/index.runDispatcher
+
+    - key: settings-renderer
+      handler: src/index.renderSettings
+
+    - key: settings-resolver
+      handler: src/index.settingsResolver
+
+app:
+  id: ari:cloud:ecosystem::app/TO_BE_SET_ON_FIRST_DEPLOY
+  runtime:
+    name: nodejs18.x
+
+permissions:
+  scopes:
+    - read:pullrequest:bitbucket
+    - write:pipeline:bitbucket
+    - write:comment:bitbucket
+    - storage:app

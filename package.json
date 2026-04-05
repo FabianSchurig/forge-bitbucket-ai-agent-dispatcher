@@ -1,0 +1,35 @@
+{
+  "name": "forge-bitbucket-ai-agent-dispatcher",
+  "version": "1.0.0",
+  "description": "Atlassian Forge App – Bitbucket AI Agent Dispatcher. Listens for trigger keywords in PR comments and dispatches a custom pipeline in a central hub repository.",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
+    "deploy": "forge deploy",
+    "install:app": "forge install"
+  },
+  "dependencies": {
+    "@forge/api": "^4.0.0",
+    "@forge/react": "^10.0.0",
+    "@forge/resolver": "^1.5.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@babel/preset-react": "^7.23.0",
+    "@babel/preset-typescript": "^7.23.0",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/react": "^14.3.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "typescript": "^5.3.0"
+  }
+}
