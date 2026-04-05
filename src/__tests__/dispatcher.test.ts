@@ -153,7 +153,7 @@ describe('buildPipelinePayload', () => {
     ]);
   });
 
-  it('serialises PR_ID as a string', () => {
+  it('serializes PR_ID as a string', () => {
     const payload = buildPipelinePayload(context, DEFAULT_CONFIG);
     const prIdVar = payload.variables.find((v) => v.key === 'PR_ID');
     expect(prIdVar?.value).toBe('7');

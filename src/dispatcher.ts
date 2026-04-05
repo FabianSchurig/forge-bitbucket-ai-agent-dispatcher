@@ -150,7 +150,7 @@ export async function postFailureComment(
         raw: 'Failed to trigger agent pipeline. Please check configuration.',
       },
     };
-    if (commentId) {
+    if (commentId > 0) {
       body.parent = { id: commentId };
     }
 

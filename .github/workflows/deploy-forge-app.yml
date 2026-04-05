@@ -9,6 +9,8 @@ jobs:
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Code
@@ -30,6 +32,8 @@ jobs:
     name: Deploy & Install (Staging)
     runs-on: ubuntu-latest
     needs: test # Only deploy when tests pass
+    permissions:
+      contents: read
 
     # These exact environment variables are intercepted by the Forge CLI
     # to authenticate the headless session.
