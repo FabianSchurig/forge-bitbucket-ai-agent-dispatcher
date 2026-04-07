@@ -1,12 +1,26 @@
 import {
   extractTriggerContext,
   buildPipelinePayload,
-  fetchPRDetails,
+  fetchRepositoryDetails,
+  fetchCommentContent,
   triggerPipeline,
   postFailureComment,
   runDispatcher,
 } from '../dispatcher';
 import { DEFAULT_CONFIG } from '../types';
+import type { DispatchContext } from '../types';
+
+// ---------------------------------------------------------------------------
+// Mock @forge/kvs (used by storage.ts, which dispatcher.ts depends on)
+// ---------------------------------------------------------------------------
+
+jest.mock('@forge/kvs', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn().mockResolvedValue(undefined),
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Mock @forge/api
@@ -37,21 +51,49 @@ const forgeApiMock = jest.requireMock('@forge/api') as any;
 const mockRequestBitbucket: jest.Mock = forgeApiMock.default.asApp().requestBitbucket;
 
 // ---------------------------------------------------------------------------
-// Helper: make a minimal valid event payload
+// Helper: make a minimal valid Forge event payload
+//
+// The Forge `avi:bitbucket:created:pullrequest-comment` event provides
+// UUIDs for workspace/repository, an ID-only comment, and basic PR info
+// (id, state, source/destination branches).  It does NOT include slugs
+// or comment content.
 // ---------------------------------------------------------------------------
 
 function makeEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    comment: {
-      id: 42,
-      content: { raw: '@agent please review' },
+    comment: { id: 42 },
+    pullrequest: {
+      id: 7,
+      state: 'OPEN',
+      source: {
+        branch: 'feature/cool-stuff',
+        commit: { hash: 'abc123' },
+      },
+      destination: {
+        branch: 'main',
+        commit: { hash: 'def456' },
+      },
     },
-    pullrequest: { id: 7 },
-    repository: {
-      slug: 'spoke-repo',
-      workspace: { slug: 'my-workspace' },
-    },
-    actor: { account_id: 'user-123', display_name: 'Alice' },
+    repository: { uuid: '{repo-uuid-1234}' },
+    workspace: { uuid: '{ws-uuid-5678}' },
+    actor: { type: 'user', accountId: 'user-123', uuid: '{actor-uuid}' },
+    ...overrides,
+  };
+}
+
+// Helper: make a full DispatchContext for unit tests that don't go through
+// extractTriggerContext.
+function makeContext(overrides: Partial<DispatchContext> = {}): DispatchContext {
+  return {
+    workspaceUuid: '{ws-uuid-5678}',
+    repoUuid: '{repo-uuid-1234}',
+    workspace: 'my-workspace',
+    repoSlug: 'spoke-repo',
+    prId: 7,
+    sourceBranch: 'feature/cool-stuff',
+    commentText: '@agent do something',
+    commentAuthor: 'user-123',
+    commentId: 42,
     ...overrides,
   };
 }
@@ -64,34 +106,42 @@ describe('extractTriggerContext', () => {
   it('returns a populated DispatchContext for a valid event', () => {
     const ctx = extractTriggerContext(makeEvent());
     expect(ctx).not.toBeNull();
-    expect(ctx?.workspace).toBe('my-workspace');
-    expect(ctx?.repoSlug).toBe('spoke-repo');
+    expect(ctx?.workspaceUuid).toBe('{ws-uuid-5678}');
+    expect(ctx?.repoUuid).toBe('{repo-uuid-1234}');
     expect(ctx?.prId).toBe(7);
     expect(ctx?.commentId).toBe(42);
-    expect(ctx?.commentText).toBe('@agent please review');
     expect(ctx?.commentAuthor).toBe('user-123');
-    expect(ctx?.sourceBranch).toBe('');
+    expect(ctx?.sourceBranch).toBe('feature/cool-stuff');
+    // Slugs and comment text are empty until fetched via API.
+    expect(ctx?.workspace).toBe('');
+    expect(ctx?.repoSlug).toBe('');
+    expect(ctx?.commentText).toBe('');
   });
 
-  it('returns null when workspace is missing', () => {
-    const event = makeEvent({ repository: { slug: 'spoke-repo', workspace: {} } });
+  it('returns null when workspace UUID is missing', () => {
+    const event = makeEvent({ workspace: {} });
     expect(extractTriggerContext(event)).toBeNull();
   });
 
-  it('returns null when repoSlug is missing', () => {
-    const event = makeEvent({ repository: { workspace: { slug: 'my-workspace' } } });
+  it('returns null when repository UUID is missing', () => {
+    const event = makeEvent({ repository: {} });
     expect(extractTriggerContext(event)).toBeNull();
   });
 
   it('returns null when prId is missing', () => {
-    const event = makeEvent({ pullrequest: {} });
+    const event = makeEvent({ pullrequest: { state: 'OPEN' } });
     expect(extractTriggerContext(event)).toBeNull();
   });
 
-  it('falls back to display_name when account_id is absent', () => {
-    const event = makeEvent({ actor: { display_name: 'Bob' } });
+  it('returns null when commentId is missing', () => {
+    const event = makeEvent({ comment: {} });
+    expect(extractTriggerContext(event)).toBeNull();
+  });
+
+  it('falls back to actor uuid when accountId is absent', () => {
+    const event = makeEvent({ actor: { type: 'user', uuid: '{fallback-uuid}' } });
     const ctx = extractTriggerContext(event);
-    expect(ctx?.commentAuthor).toBe('Bob');
+    expect(ctx?.commentAuthor).toBe('{fallback-uuid}');
   });
 
   it('uses "unknown" when actor is absent', () => {
@@ -100,10 +150,17 @@ describe('extractTriggerContext', () => {
     expect(ctx?.commentAuthor).toBe('unknown');
   });
 
-  it('treats empty comment text as an empty string', () => {
-    const event = makeEvent({ comment: { id: 1, content: { raw: '' } } });
+  it('extracts source branch from pullrequest event data', () => {
+    const event = makeEvent({
+      pullrequest: {
+        id: 3,
+        state: 'OPEN',
+        source: { branch: 'my-branch', commit: { hash: 'aaa' } },
+        destination: { branch: 'main', commit: { hash: 'bbb' } },
+      },
+    });
     const ctx = extractTriggerContext(event);
-    expect(ctx?.commentText).toBe('');
+    expect(ctx?.sourceBranch).toBe('my-branch');
   });
 });
 
@@ -112,15 +169,7 @@ describe('extractTriggerContext', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPipelinePayload', () => {
-  const context = {
-    workspace: 'my-workspace',
-    repoSlug: 'spoke-repo',
-    prId: 7,
-    sourceBranch: 'feature/cool-stuff',
-    commentText: '@agent do something',
-    commentAuthor: 'user-123',
-    commentId: 42,
-  };
+  const context = makeContext();
 
   it('strips the "custom: " prefix from hubPipeline', () => {
     const payload = buildPipelinePayload(context, DEFAULT_CONFIG);
@@ -171,21 +220,25 @@ describe('buildPipelinePayload', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fetchPRDetails
+// fetchRepositoryDetails
 // ---------------------------------------------------------------------------
 
-describe('fetchPRDetails', () => {
+describe('fetchRepositoryDetails', () => {
   beforeEach(() => mockRequestBitbucket.mockReset());
 
-  it('returns sourceBranch on a successful response', async () => {
+  it('returns workspace slug and repo slug on success', async () => {
     mockRequestBitbucket.mockResolvedValue({
       ok: true,
-      json: async () => ({ source: { branch: { name: 'feature/abc' } } }),
+      json: async () => ({
+        slug: 'spoke-repo',
+        workspace: { slug: 'my-workspace' },
+      }),
       text: async () => '',
     });
 
-    const result = await fetchPRDetails('ws', 'repo', 1);
-    expect(result.sourceBranch).toBe('feature/abc');
+    const result = await fetchRepositoryDetails('{ws-uuid}', '{repo-uuid}');
+    expect(result.workspaceSlug).toBe('my-workspace');
+    expect(result.repoSlug).toBe('spoke-repo');
   });
 
   it('throws on a non-OK response', async () => {
@@ -195,20 +248,51 @@ describe('fetchPRDetails', () => {
       text: async () => 'Not Found',
     });
 
-    await expect(fetchPRDetails('ws', 'repo', 99)).rejects.toThrow(
-      'Failed to fetch PR details: 404',
+    await expect(fetchRepositoryDetails('{ws}', '{repo}')).rejects.toThrow(
+      'Failed to fetch repository details: 404',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchCommentContent
+// ---------------------------------------------------------------------------
+
+describe('fetchCommentContent', () => {
+  beforeEach(() => mockRequestBitbucket.mockReset());
+
+  it('returns the raw comment content on success', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: { raw: '@agent please review' } }),
+      text: async () => '',
+    });
+
+    const text = await fetchCommentContent('{ws}', '{repo}', 7, 42);
+    expect(text).toBe('@agent please review');
+  });
+
+  it('throws on a non-OK response', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'Not Found',
+    });
+
+    await expect(fetchCommentContent('{ws}', '{repo}', 7, 42)).rejects.toThrow(
+      'Failed to fetch comment content: 404',
     );
   });
 
-  it('returns empty string when branch name is missing in payload', async () => {
+  it('returns empty string when content is missing', async () => {
     mockRequestBitbucket.mockResolvedValue({
       ok: true,
       json: async () => ({}),
       text: async () => '',
     });
 
-    const result = await fetchPRDetails('ws', 'repo', 1);
-    expect(result.sourceBranch).toBe('');
+    const text = await fetchCommentContent('{ws}', '{repo}', 7, 42);
+    expect(text).toBe('');
   });
 });
 
@@ -226,18 +310,7 @@ describe('triggerPipeline', () => {
       text: async () => '',
     });
 
-    const payload = buildPipelinePayload(
-      {
-        workspace: 'ws',
-        repoSlug: 'repo',
-        prId: 1,
-        sourceBranch: 'main',
-        commentText: '@agent',
-        commentAuthor: 'u',
-        commentId: 1,
-      },
-      DEFAULT_CONFIG,
-    );
+    const payload = buildPipelinePayload(makeContext(), DEFAULT_CONFIG);
 
     await expect(triggerPipeline('hub-ws', 'hub-repo', payload)).resolves.toBeUndefined();
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
@@ -250,18 +323,7 @@ describe('triggerPipeline', () => {
       text: async () => 'Bad Request',
     });
 
-    const payload = buildPipelinePayload(
-      {
-        workspace: 'ws',
-        repoSlug: 'repo',
-        prId: 1,
-        sourceBranch: 'main',
-        commentText: '@agent',
-        commentAuthor: 'u',
-        commentId: 1,
-      },
-      DEFAULT_CONFIG,
-    );
+    const payload = buildPipelinePayload(makeContext(), DEFAULT_CONFIG);
 
     await expect(triggerPipeline('hub-ws', 'hub-repo', payload)).rejects.toThrow(
       'Failed to trigger pipeline: 400',
@@ -282,7 +344,7 @@ describe('postFailureComment', () => {
       text: async () => '',
     });
 
-    await expect(postFailureComment('ws', 'repo', 1, 42)).resolves.toBeUndefined();
+    await expect(postFailureComment('{ws}', '{repo}', 1, 42)).resolves.toBeUndefined();
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
   });
 
@@ -292,13 +354,13 @@ describe('postFailureComment', () => {
       text: async () => 'Forbidden',
     });
 
-    await expect(postFailureComment('ws', 'repo', 1, 42)).resolves.toBeUndefined();
+    await expect(postFailureComment('{ws}', '{repo}', 1, 42)).resolves.toBeUndefined();
   });
 
   it('does not throw when requestBitbucket itself rejects', async () => {
     mockRequestBitbucket.mockRejectedValue(new Error('Network error'));
 
-    await expect(postFailureComment('ws', 'repo', 1, 42)).resolves.toBeUndefined();
+    await expect(postFailureComment('{ws}', '{repo}', 1, 42)).resolves.toBeUndefined();
   });
 });
 
@@ -310,8 +372,9 @@ describe('runDispatcher', () => {
   beforeEach(() => {
     mockRequestBitbucket.mockReset();
     // Default: storage returns no stored config (uses defaults).
-    const { storage } = jest.requireMock('@forge/api');
-    (storage.get as jest.Mock).mockResolvedValue(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kvsMock = jest.requireMock('@forge/kvs') as any;
+    (kvsMock.default.get as jest.Mock).mockResolvedValue(undefined);
   });
 
   it('returns early when the event payload is invalid', async () => {
@@ -319,21 +382,39 @@ describe('runDispatcher', () => {
     expect(mockRequestBitbucket).not.toHaveBeenCalled();
   });
 
-  it('returns early when the trigger keyword is absent', async () => {
-    const event = makeEvent({ comment: { id: 1, content: { raw: 'hello world' } } });
-    await runDispatcher(event);
+  it('returns early when the event is self-generated', async () => {
+    await runDispatcher({ ...makeEvent(), selfGenerated: true });
     expect(mockRequestBitbucket).not.toHaveBeenCalled();
   });
 
-  it('fetches PR details and triggers the pipeline when keyword is present', async () => {
-    // First call: fetchPRDetails
+  it('returns early when the trigger keyword is absent from the comment', async () => {
+    // 1st call: fetchCommentContent – returns text without keyword
+    mockRequestBitbucket.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: { raw: 'hello world' } }),
+      text: async () => '',
+    });
+
+    await runDispatcher(makeEvent());
+    // Only the comment-fetch call should have been made.
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetches comment, repo details, and triggers the pipeline when keyword is present', async () => {
     mockRequestBitbucket
+      // 1st call: fetchCommentContent
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ source: { branch: { name: 'feat/x' } } }),
+        json: async () => ({ content: { raw: '@agent please review' } }),
         text: async () => '',
       })
-      // Second call: triggerPipeline
+      // 2nd call: fetchRepositoryDetails
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
+        text: async () => '',
+      })
+      // 3rd call: triggerPipeline
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
@@ -341,15 +422,21 @@ describe('runDispatcher', () => {
       });
 
     await runDispatcher(makeEvent());
-    expect(mockRequestBitbucket).toHaveBeenCalledTimes(2);
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(3);
   });
 
   it('posts a failure comment when triggerPipeline throws', async () => {
-    // fetchPRDetails succeeds
     mockRequestBitbucket
+      // fetchCommentContent
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ source: { branch: { name: 'feat/x' } } }),
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      // fetchRepositoryDetails
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
       // triggerPipeline fails
@@ -365,30 +452,36 @@ describe('runDispatcher', () => {
       });
 
     await runDispatcher(makeEvent());
-    // All three Bitbucket calls should have been made.
-    expect(mockRequestBitbucket).toHaveBeenCalledTimes(3);
+    // All four Bitbucket calls should have been made.
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(4);
   });
 
-  it('uses the current workspace when hubWorkspace is blank', async () => {
+  it('uses the current workspace slug when hubWorkspace is blank', async () => {
     mockRequestBitbucket
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ source: { branch: { name: 'feat/x' } } }),
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
       .mockResolvedValueOnce({ ok: true, status: 201, text: async () => '' });
 
     await runDispatcher(makeEvent());
 
-    // The second call should target my-workspace/ai-agent-hub (the default config).
-    const secondCallUrl = mockRequestBitbucket.mock.calls[1][0] as string;
-    expect(secondCallUrl).toContain('my-workspace');
-    expect(secondCallUrl).toContain('ai-agent-hub');
+    // The 3rd call (triggerPipeline) should target my-workspace/ai-agent-hub.
+    const triggerCallUrl = mockRequestBitbucket.mock.calls[2][0] as string;
+    expect(triggerCallUrl).toContain('my-workspace');
+    expect(triggerCallUrl).toContain('ai-agent-hub');
   });
 
   it('uses a custom hubWorkspace from stored config', async () => {
-    const { storage } = jest.requireMock('@forge/api');
-    (storage.get as jest.Mock).mockResolvedValue({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kvsMock = jest.requireMock('@forge/kvs') as any;
+    (kvsMock.default.get as jest.Mock).mockResolvedValue({
       ...DEFAULT_CONFIG,
       hubWorkspace: 'central-workspace',
     });
@@ -396,14 +489,19 @@ describe('runDispatcher', () => {
     mockRequestBitbucket
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ source: { branch: { name: 'feat/x' } } }),
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
       .mockResolvedValueOnce({ ok: true, status: 201, text: async () => '' });
 
     await runDispatcher(makeEvent());
 
-    const secondCallUrl = mockRequestBitbucket.mock.calls[1][0] as string;
-    expect(secondCallUrl).toContain('central-workspace');
+    const triggerCallUrl = mockRequestBitbucket.mock.calls[2][0] as string;
+    expect(triggerCallUrl).toContain('central-workspace');
   });
 });

@@ -27,17 +27,21 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 /** Context extracted from a pull-request comment event. */
 export interface DispatchContext {
-  /** Workspace slug of the spoke repository. */
+  /** Workspace UUID from the Forge event (e.g. "{uuid-here}"). */
+  workspaceUuid: string;
+  /** Repository UUID from the Forge event (e.g. "{uuid-here}"). */
+  repoUuid: string;
+  /** Workspace slug of the spoke repository (populated via API). */
   workspace: string;
-  /** Repository slug of the spoke repository. */
+  /** Repository slug of the spoke repository (populated via API). */
   repoSlug: string;
   /** Pull-request ID in the spoke repository. */
   prId: number;
-  /** Source branch of the pull request (populated after fetching PR details). */
+  /** Source branch of the pull request (available directly from the event). */
   sourceBranch: string;
-  /** Full plaintext content of the triggering comment. */
+  /** Full plaintext content of the triggering comment (populated via API). */
   commentText: string;
-  /** Account ID (or display name) of the user who posted the comment. */
+  /** Account ID of the user who posted the comment. */
   commentAuthor: string;
   /** ID of the triggering comment (used when posting a failure reply). */
   commentId: number;

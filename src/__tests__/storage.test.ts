@@ -2,26 +2,22 @@ import { getSettings, saveSettings } from '../storage';
 import { DEFAULT_CONFIG } from '../types';
 
 // ---------------------------------------------------------------------------
-// Mock @forge/api
+// Mock @forge/kvs
 // ---------------------------------------------------------------------------
 
-jest.mock('@forge/api', () => ({
+jest.mock('@forge/kvs', () => ({
   __esModule: true,
   default: {
-    asApp: jest.fn(),
-  },
-  storage: {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined),
   },
-  route: jest.fn(),
 }));
 
 // Retrieve stable references to the mock functions after the factory has run.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const forgeApiMock = jest.requireMock('@forge/api') as any;
-const mockStorageGet: jest.Mock = forgeApiMock.storage.get;
-const mockStorageSet: jest.Mock = forgeApiMock.storage.set;
+const kvsM = jest.requireMock('@forge/kvs') as any;
+const mockStorageGet: jest.Mock = kvsM.default.get;
+const mockStorageSet: jest.Mock = kvsM.default.set;
 
 // ---------------------------------------------------------------------------
 // getSettings

@@ -3,12 +3,11 @@
  *
  * Provides jest.fn() stubs for api.asApp().requestBitbucket(),
  * storage.get(), storage.set(), and the route template-literal tag.
+ *
+ * Note: __esModule markers are handled by Jest at test time via the module
+ * factory's __esModule property. They must NOT be exported as named exports
+ * because the Forge bundler processes src/ and rejects the syntax.
  */
-
-// __esModule: true tells Babel's interop layer that this is already an
-// ES-module-shaped object, so `import api from '@forge/api'` resolves
-// to `module.default` rather than the whole module.
-export const __esModule = true;
 
 const mockRequestBitbucket = jest.fn();
 

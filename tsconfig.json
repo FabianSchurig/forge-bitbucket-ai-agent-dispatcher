@@ -10,10 +10,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "jsx": "react-jsx",
+    "jsx": "react",
     "moduleResolution": "node",
     "declaration": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "build", "src/__tests__"]
+  "exclude": ["node_modules", "build"]
 }

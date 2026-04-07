@@ -8,5 +8,4 @@
  */
 
 export { runDispatcher } from './dispatcher';
-export { renderSettings } from './settings';
 export { handler as settingsResolver } from './resolvers';

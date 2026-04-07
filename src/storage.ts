@@ -1,4 +1,4 @@
-import { storage } from '@forge/api';
+import kvs from '@forge/kvs';
 import { AppConfig, DEFAULT_CONFIG } from './types';
 
 const STORAGE_KEY = 'appConfig';
@@ -9,7 +9,7 @@ const STORAGE_KEY = 'appConfig';
  * receive a fully-populated object.
  */
 export async function getSettings(): Promise<AppConfig> {
-  const stored = (await storage.get(STORAGE_KEY)) as AppConfig | undefined;
+  const stored = (await kvs.get<AppConfig>(STORAGE_KEY)) as AppConfig | undefined;
   if (!stored) {
     return { ...DEFAULT_CONFIG };
   }
@@ -23,5 +23,5 @@ export async function getSettings(): Promise<AppConfig> {
 export async function saveSettings(config: Partial<AppConfig>): Promise<void> {
   const current = await getSettings();
   const updated: AppConfig = { ...current, ...config };
-  await storage.set(STORAGE_KEY, updated);
+  await kvs.set(STORAGE_KEY, updated);
 }

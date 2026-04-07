@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ForgeReconciler, {
   Button,
   Form,
@@ -7,22 +7,28 @@ import ForgeReconciler, {
   SectionMessage,
   Stack,
   Heading,
-  TextField,
+  Textfield,
   Text,
 } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import { AppConfig, DEFAULT_CONFIG } from './types';
 
-export const SettingsForm: React.FC = () => {
-  const [config, setConfig] = React.useState<AppConfig>(DEFAULT_CONFIG);
-  const [saved, setSaved] = React.useState(false);
-  const [loading, setLoading] = React.useState(true);
-  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+// The InputEvent type from Forge UI Kit 2 is a serialisable event object (not
+// the standard DOM Event). Only target.value is needed here.
+type ForgeInputEvent = { target: { value?: unknown } };
 
-  React.useEffect(() => {
+export const SettingsForm = () => {
+  // Single state holds both the loaded values and any user edits.
+  // Initialised to DEFAULT_CONFIG until storage data loads.
+  const [formValues, setFormValues] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
     invoke<AppConfig>('getSettings')
       .then((data) => {
-        setConfig(data ?? DEFAULT_CONFIG);
+        setFormValues(data ?? DEFAULT_CONFIG);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -32,21 +38,20 @@ export const SettingsForm: React.FC = () => {
       });
   }, []);
 
-  const handleSubmit = async (formData: Record<string, string>): Promise<void> => {
+  // Helper to update a single field in formValues state.
+  const handleChange =
+    (field: keyof AppConfig) =>
+    (e: ForgeInputEvent): void => {
+      setFormValues((prev: AppConfig) => ({ ...prev, [field]: String(e.target.value ?? '') }));
+    };
+
+  // Form onSubmit must match `() => Promise<void | boolean> | void` (no args).
+  const handleSubmit = async (): Promise<void> => {
     setSaved(false);
     setErrorMsg(null);
 
     try {
-      const newConfig: AppConfig = {
-        triggerKeyword: formData['triggerKeyword'] || DEFAULT_CONFIG.triggerKeyword,
-        hubWorkspace: formData['hubWorkspace'] ?? '',
-        hubRepository: formData['hubRepository'] || DEFAULT_CONFIG.hubRepository,
-        hubPipeline: formData['hubPipeline'] || DEFAULT_CONFIG.hubPipeline,
-        pipelineBranch: formData['pipelineBranch'] || DEFAULT_CONFIG.pipelineBranch,
-      };
-
-      await invoke('saveSettings', newConfig);
-      setConfig(newConfig);
+      await invoke('saveSettings', formValues);
       setSaved(true);
     } catch (err: unknown) {
       console.error('Failed to save settings:', err);
@@ -60,7 +65,7 @@ export const SettingsForm: React.FC = () => {
 
   return (
     <Stack space="space.200">
-      <Heading size="large">AI Agent Dispatcher Settings</Heading>
+      <Heading as="h2">AI Agent Dispatcher Settings</Heading>
 
       {errorMsg && (
         <SectionMessage appearance="error" title="Error">
@@ -77,43 +82,48 @@ export const SettingsForm: React.FC = () => {
       <Form onSubmit={handleSubmit}>
         <FormSection>
           <Label labelFor="triggerKeyword">Trigger Keyword</Label>
-          <TextField
+          <Textfield
             id="triggerKeyword"
             name="triggerKeyword"
-            defaultValue={config.triggerKeyword}
+            value={formValues.triggerKeyword}
             placeholder="@agent"
+            onChange={handleChange('triggerKeyword')}
           />
 
           <Label labelFor="hubWorkspace">Hub Workspace Slug</Label>
-          <TextField
+          <Textfield
             id="hubWorkspace"
             name="hubWorkspace"
-            defaultValue={config.hubWorkspace}
+            value={formValues.hubWorkspace}
             placeholder="Leave blank to use the current workspace"
+            onChange={handleChange('hubWorkspace')}
           />
 
           <Label labelFor="hubRepository">Hub Repository Slug</Label>
-          <TextField
+          <Textfield
             id="hubRepository"
             name="hubRepository"
-            defaultValue={config.hubRepository}
+            value={formValues.hubRepository}
             placeholder="ai-agent-hub"
+            onChange={handleChange('hubRepository')}
           />
 
           <Label labelFor="hubPipeline">Hub Pipeline Name</Label>
-          <TextField
+          <Textfield
             id="hubPipeline"
             name="hubPipeline"
-            defaultValue={config.hubPipeline}
+            value={formValues.hubPipeline}
             placeholder="custom: run-agent-session"
+            onChange={handleChange('hubPipeline')}
           />
 
           <Label labelFor="pipelineBranch">Pipeline Branch Name</Label>
-          <TextField
+          <Textfield
             id="pipelineBranch"
             name="pipelineBranch"
-            defaultValue={config.pipelineBranch}
+            value={formValues.pipelineBranch}
             placeholder="main"
+            onChange={handleChange('pipelineBranch')}
           />
         </FormSection>
 
@@ -125,15 +135,11 @@ export const SettingsForm: React.FC = () => {
   );
 };
 
-/**
- * Forge UI Kit 2 renderer handler.
- * The manifest.yml function handler points to this export.
- * When Forge invokes it, it mounts the React component tree.
- */
-export function renderSettings(): void {
-  ForgeReconciler.render(
-    <React.StrictMode>
-      <SettingsForm />
-    </React.StrictMode>,
-  );
-}
+// Mount the component tree when this module is loaded by the Forge runtime.
+// With `render: native` in manifest.yml, Forge loads this file directly as
+// the frontend entry point rather than calling an exported function.
+ForgeReconciler.render(
+  <React.StrictMode>
+    <SettingsForm />
+  </React.StrictMode>,
+);

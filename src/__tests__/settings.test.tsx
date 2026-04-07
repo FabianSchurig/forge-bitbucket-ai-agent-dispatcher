@@ -65,22 +65,25 @@ jest.mock('@forge/react', () => {
       actual.createElement('div', null, children),
     Text: ({ children }: { children?: React.ReactNode }) =>
       actual.createElement('span', null, children),
-    TextField: ({
+    Textfield: ({
       id,
       name,
-      defaultValue,
+      value,
       placeholder,
+      onChange,
     }: {
       id?: string;
       name?: string;
-      defaultValue?: string;
+      value?: string;
       placeholder?: string;
+      onChange?: (e: unknown) => void;
     }) =>
       actual.createElement('input', {
         id,
         name,
-        defaultValue,
+        value: value ?? '',
         placeholder,
+        onChange,
       }),
   };
 });

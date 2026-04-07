@@ -73,6 +73,7 @@ forge deploy -e staging
 
 ```bash
 forge install -e staging
+forge install --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment staging
 ```
 
 > **Important:** The first install must be performed manually from a developer machine.  

@@ -11,36 +11,44 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the relevant context from a raw Forge Bitbucket comment-event
- * payload.  Returns null if required fields are missing.
+ * Extracts the relevant context from a Forge Bitbucket
+ * `avi:bitbucket:created:pullrequest-comment` event payload.
+ *
+ * The Forge event only provides UUIDs for workspace/repository and an ID
+ * for the comment (no slug, no comment content).  Slugs and comment text
+ * are populated later via Bitbucket REST API calls.
+ *
+ * Returns null if required fields are missing.
  */
 export function extractTriggerContext(event: Record<string, unknown>): DispatchContext | null {
   const comment = event?.comment as Record<string, unknown> | undefined;
   const pullrequest = event?.pullrequest as Record<string, unknown> | undefined;
   const repository = event?.repository as Record<string, unknown> | undefined;
+  const workspace = event?.workspace as Record<string, unknown> | undefined;
   const actor = event?.actor as Record<string, unknown> | undefined;
-  const workspace = repository?.workspace as Record<string, unknown> | undefined;
 
-  const commentText = (comment?.content as Record<string, unknown> | undefined)?.raw as string ?? '';
-  const workspaceSlug = workspace?.slug as string ?? '';
-  const repoSlug = repository?.slug as string ?? '';
-  const prId = pullrequest?.id as number ?? 0;
-  const commentId = comment?.id as number ?? 0;
-  const commentAuthor =
-    (actor?.account_id as string) ??
-    (actor?.display_name as string) ??
-    'unknown';
+  const workspaceUuid = (workspace?.uuid as string) ?? '';
+  const repoUuid = (repository?.uuid as string) ?? '';
+  const prId = (pullrequest?.id as number) ?? 0;
+  const commentId = (comment?.id as number) ?? 0;
+  const commentAuthor = (actor?.accountId as string) ?? (actor?.uuid as string) ?? 'unknown';
 
-  if (!workspaceSlug || !repoSlug || !prId) {
+  // The Forge event includes source branch info directly on the pullrequest.
+  const source = pullrequest?.source as Record<string, unknown> | undefined;
+  const sourceBranch = (source?.branch as string) ?? '';
+
+  if (!workspaceUuid || !repoUuid || !prId || !commentId) {
     return null;
   }
 
   return {
-    workspace: workspaceSlug,
-    repoSlug,
+    workspaceUuid,
+    repoUuid,
+    workspace: '',      // populated via fetchRepositoryDetails
+    repoSlug: '',       // populated via fetchRepositoryDetails
     prId,
-    sourceBranch: '', // populated after fetching PR details
-    commentText,
+    sourceBranch,
+    commentText: '',    // populated via fetchCommentContent
     commentAuthor,
     commentId,
   };
@@ -82,30 +90,58 @@ export function buildPipelinePayload(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches PR details from the Bitbucket API and returns the source branch name.
+ * Fetches repository details via the Bitbucket API using UUIDs.
+ * Returns the workspace slug and repo slug needed for pipeline variables
+ * and subsequent API calls.
  */
-export async function fetchPRDetails(
-  workspace: string,
-  repoSlug: string,
-  prId: number,
-): Promise<{ sourceBranch: string }> {
+export async function fetchRepositoryDetails(
+  workspaceUuid: string,
+  repoUuid: string,
+): Promise<{ workspaceSlug: string; repoSlug: string }> {
   const response = await api
     .asApp()
     .requestBitbucket(
-      route`/2.0/repositories/${workspace}/${repoSlug}/pullrequests/${prId}`,
+      route`/2.0/repositories/${workspaceUuid}/${repoUuid}`,
     );
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Failed to fetch PR details: ${response.status} – ${body}`);
+    throw new Error(`Failed to fetch repository details: ${response.status} – ${body}`);
   }
 
   const data = (await response.json()) as Record<string, unknown>;
-  const source = data?.source as Record<string, unknown> | undefined;
-  const branch = source?.branch as Record<string, unknown> | undefined;
-  const sourceBranch = (branch?.name as string) ?? '';
+  const repoSlug = (data?.slug as string) ?? '';
+  const ws = data?.workspace as Record<string, unknown> | undefined;
+  const workspaceSlug = (ws?.slug as string) ?? '';
 
-  return { sourceBranch };
+  return { workspaceSlug, repoSlug };
+}
+
+/**
+ * Fetches the raw content of a PR comment from the Bitbucket API.
+ * The Forge event only includes the comment ID, so we need a separate
+ * API call to get the actual text.
+ */
+export async function fetchCommentContent(
+  workspaceUuid: string,
+  repoUuid: string,
+  prId: number,
+  commentId: number,
+): Promise<string> {
+  const response = await api
+    .asApp()
+    .requestBitbucket(
+      route`/2.0/repositories/${workspaceUuid}/${repoUuid}/pullrequests/${prId}/comments/${commentId}`,
+    );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to fetch comment content: ${response.status} – ${body}`);
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  const content = data?.content as Record<string, unknown> | undefined;
+  return (content?.raw as string) ?? '';
 }
 
 /**
@@ -135,12 +171,13 @@ export async function triggerPipeline(
 
 /**
  * Posts a failure notice as a reply to the original PR comment.
+ * Uses UUIDs for the API path since slugs may not yet be available.
  * Errors are swallowed so that a secondary failure does not obscure the
  * primary error.
  */
 export async function postFailureComment(
-  workspace: string,
-  repoSlug: string,
+  workspaceUuid: string,
+  repoUuid: string,
   prId: number,
   commentId: number,
 ): Promise<void> {
@@ -157,7 +194,7 @@ export async function postFailureComment(
     const response = await api
       .asApp()
       .requestBitbucket(
-        route`/2.0/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/comments`,
+        route`/2.0/repositories/${workspaceUuid}/${repoUuid}/pullrequests/${prId}/comments`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -178,11 +215,20 @@ export async function postFailureComment(
 // ---------------------------------------------------------------------------
 
 /**
- * Forge trigger handler for the `avi:bitbucket:created:pullrequest:comment`
- * event.  Checks for the configured trigger keyword, fetches PR context and
- * dispatches a pipeline in the hub repository.
+ * Forge trigger handler for the `avi:bitbucket:created:pullrequest-comment`
+ * event.  Fetches comment content and repo details (since the Forge event
+ * only provides UUIDs and IDs), checks for the configured trigger keyword,
+ * and dispatches a pipeline in the hub repository.
  */
 export async function runDispatcher(event: Record<string, unknown>): Promise<void> {
+  console.log('Dispatcher: received event', JSON.stringify(event));
+
+  // Skip events generated by this app itself (e.g. failure comment replies).
+  if (event?.selfGenerated === true) {
+    console.log('Dispatcher: ignoring self-generated event – skipping.');
+    return;
+  }
+
   const context = extractTriggerContext(event);
 
   if (!context) {
@@ -190,27 +236,41 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     return;
   }
 
-  const config = await getSettings();
-
-  if (!context.commentText.includes(config.triggerKeyword)) {
-    console.log(
-      `Dispatcher: trigger keyword "${config.triggerKeyword}" not found in comment – skipping.`,
-    );
-    return;
-  }
-
   console.log(
-    `Dispatcher: keyword detected in PR #${context.prId} ` +
-    `(${context.workspace}/${context.repoSlug}) – dispatching pipeline.`,
+    `Dispatcher: PR #${context.prId}, comment #${context.commentId} ` +
+    `(workspace=${context.workspaceUuid}, repo=${context.repoUuid}).`,
   );
 
   try {
-    const { sourceBranch } = await fetchPRDetails(
-      context.workspace,
-      context.repoSlug,
+    // Fetch comment content (not included in the Forge event payload).
+    const commentText = await fetchCommentContent(
+      context.workspaceUuid,
+      context.repoUuid,
       context.prId,
+      context.commentId,
     );
-    context.sourceBranch = sourceBranch;
+    context.commentText = commentText;
+
+    const config = await getSettings();
+
+    if (!context.commentText.includes(config.triggerKeyword)) {
+      console.log(
+        `Dispatcher: trigger keyword "${config.triggerKeyword}" not found in comment – skipping.`,
+      );
+      return;
+    }
+
+    console.log(
+      `Dispatcher: keyword "${config.triggerKeyword}" detected – resolving repo details.`,
+    );
+
+    // Fetch repo/workspace slugs (not included in the Forge event payload).
+    const { workspaceSlug, repoSlug } = await fetchRepositoryDetails(
+      context.workspaceUuid,
+      context.repoUuid,
+    );
+    context.workspace = workspaceSlug;
+    context.repoSlug = repoSlug;
 
     const hubWorkspace = config.hubWorkspace || context.workspace;
     const effectiveConfig: AppConfig = { ...config, hubWorkspace };
@@ -225,8 +285,8 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
   } catch (error) {
     console.error('Dispatcher: failed to dispatch pipeline:', error);
     await postFailureComment(
-      context.workspace,
-      context.repoSlug,
+      context.workspaceUuid,
+      context.repoUuid,
       context.prId,
       context.commentId,
     );
