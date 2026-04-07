@@ -1,0 +1,38 @@
+modules:
+  trigger:
+    - key: pr-comment-trigger
+      function: run-dispatcher
+      events:
+        - avi:bitbucket:created:pullrequest-comment
+
+  bitbucket:workspaceSettingsMenuPage:
+    - key: settings-page
+      resource: settings-ui
+      render: native
+      title: AI Agent Dispatcher Settings
+      resolver:
+        function: settings-resolver
+
+  function:
+    - key: run-dispatcher
+      handler: index.runDispatcher
+
+    - key: settings-resolver
+      handler: index.settingsResolver
+
+app:
+  id: ari:cloud:ecosystem::app/c692fc30-e7f5-40f2-ab84-733a61f45989 
+  runtime:
+    name: nodejs24.x
+
+resources:
+  - key: settings-ui
+    path: src/settings.tsx
+
+permissions:
+  scopes:
+    - read:pullrequest:bitbucket
+    - read:repository:bitbucket
+    - write:pipeline:bitbucket
+    - write:comment:bitbucket
+    - storage:app
