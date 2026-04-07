@@ -66,14 +66,13 @@ If the app already exists, the `app.id` in `manifest.yml` is already set.
 ### 3. Deploy the app
 
 ```bash
-forge deploy -e staging
+forge deploy -e development
 ```
 
 ### 4. Install the app on your Bitbucket workspace
 
 ```bash
-forge install -e staging
-forge install --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment staging
+forge install --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development
 ```
 
 > **Important:** The first install must be performed manually from a developer machine.  
@@ -119,7 +118,7 @@ npm run test:coverage       # run tests with coverage report
 
 The test suite covers:
 
-- **Unit tests** – `extractTriggerContext`, `buildPipelinePayload`, `fetchPRDetails`, `triggerPipeline`, `postFailureComment`, and `runDispatcher` (dispatcher logic)
+- **Unit tests** – `extractTriggerContext`, `buildPipelinePayload`, `fetchRepositoryDetails`, `fetchCommentContent`, `triggerPipeline`, `postFailureComment`, and `runDispatcher` (dispatcher logic)
 - **Integration-style unit tests** – `getSettings` and `saveSettings` (Forge Storage interactions)
 - **Component tests** – `SettingsForm` (settings UI rendering and form submission)
 
@@ -129,7 +128,7 @@ All Forge APIs (`@forge/api`, `@forge/react`, `@forge/resolver`, `@forge/bridge`
 
 ## CI/CD – Automated Deployment (GitHub Actions)
 
-The workflow at `.github/workflows/deploy-forge-app.yml` automatically runs tests, lints the Forge code, deploys to staging, and upgrades the workspace installation on every push to `main`.
+The workflow at `.github/workflows/deploy-forge-app.yml` automatically runs tests, lints the Forge code, deploys to development, and upgrades the workspace installation on every push to `main`.
 
 ### Prerequisites
 
@@ -151,8 +150,8 @@ Add the following **Repository Secrets** under
 3. Install `@forge/cli` globally
 4. Disable usage analytics
 5. `forge lint` – validate the manifest and code
-6. `forge deploy -e staging` – deploy new code
-7. `forge install --upgrade --product bitbucket --environment staging --non-interactive` – apply the update to the installed workspace
+6. `forge deploy -e development` – deploy new code
+7. `forge install --upgrade --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development` – apply the update to the installed workspace
 
 ### Production deployments
 
@@ -165,6 +164,7 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 | Scope | Justification |
 |-------|---------------|
 | `read:pullrequest:bitbucket` | Fetch PR details (source branch name) |
+| `read:repository:bitbucket` | Fetch repository slug and workspace slug from UUIDs |
 | `write:pipeline:bitbucket` | Trigger a custom pipeline in the hub repository |
 | `write:comment:bitbucket` | Post a failure reply comment on the PR |
 | `storage:app` | Persist and retrieve workspace configuration |

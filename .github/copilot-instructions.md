@@ -27,8 +27,8 @@ Spoke Repo  ──(PR comment "@agent …")──▶  Forge App (Dispatcher)
 
 | Module | Purpose |
 |--------|---------|
-| `trigger` (`avi:bitbucket:created:pullrequest:comment`) | Fires `runDispatcher` on every new PR comment |
-| `bitbucket:workspaceSettings:settingsPage` | Workspace admin UI for configuration |
+| `trigger` (`avi:bitbucket:created:pullrequest-comment`) | Fires `runDispatcher` on every new PR comment |
+| `bitbucket:workspaceSettingsMenuPage` | Workspace admin UI for configuration (rendered natively via `resources`) |
 | `function` (resolver) | Backend handler for settings read/write invocations |
 
 ---
@@ -103,8 +103,8 @@ src/
 ## Testing Conventions
 
 - **All `@forge/*` packages are mocked** — tests run in a plain Node.js/jsdom environment with no Atlassian infrastructure.
-- Manual mock files live in `src/__mocks__/@forge/`. They always include `export const __esModule = true` so Babel's `_interopRequireDefault` resolves imports correctly.
-- Inline `jest.mock()` factories inside test files also include `__esModule: true` for the same reason.
+- Manual mock files live in `src/__mocks__/@forge/`. They do **not** export `__esModule` as a named export — the Forge bundler processes these files and rejects that syntax.
+- Inline `jest.mock()` factories inside test files **do** include `__esModule: true` on the returned object so Babel's `_interopRequireDefault` resolves default imports correctly.
 - After calling `jest.mock('@forge/api', factory)`, retrieve stable mock references via `jest.requireMock('@forge/api')` — **never** reference outer `let` variables from inside a `jest.mock()` factory (hoisting issue).
 - `.ts` test files run in the `node` Jest project; `.tsx` test files run in the `jsdom` Jest project.
 - All mock functions must be reset in `beforeEach` to prevent cross-test pollution.
@@ -119,9 +119,10 @@ npm run test:coverage     # with coverage report
 
 ## Manifest Conventions
 
-- Function handler format: `src/file.namedExport` (e.g. `src/index.runDispatcher`).
+- Function handler format: `index.namedExport` (e.g. `index.runDispatcher`), matching the `handler` field in `manifest.yml`.
 - Each Forge `function` key maps 1-to-1 to a named export in `src/index.ts`.
-- Permission scopes follow least-privilege: only the four scopes in `manifest.yml` are required. Do not add scopes without a documented justification.
+- The settings UI is rendered natively by Forge using the `resources` entry in `manifest.yml` and `render: native` — no separate handler export is needed.
+- Permission scopes follow least-privilege: only the five scopes in `manifest.yml` are required. Do not add scopes without a documented justification.
 
 ---
 
@@ -132,7 +133,7 @@ File: `.github/workflows/deploy-forge-app.yml`
 | Job | Trigger | Steps |
 |-----|---------|-------|
 | `test` | push to `main` | `npm ci` → `npm test` |
-| `deploy-and-install` | after `test` passes | `npm ci` → `forge lint` → `forge deploy -e staging` → `forge install --upgrade --non-interactive` |
+| `deploy-and-install` | after `test` passes | `npm ci` → `forge lint` → `forge deploy -e development` → `forge install --upgrade --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development` |
 
 Authentication uses two **repository secrets** (`FORGE_EMAIL`, `FORGE_API_TOKEN`). The first deploy/install must always be performed manually from a developer machine before CI can use `--upgrade`.
 

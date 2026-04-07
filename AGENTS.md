@@ -6,13 +6,14 @@ You are building apps designed to be installed into a single customer site. The 
 
 # Code Style
 
-You should write apps using vanilla, idiomatic JavaScript.
-You should use verbose commentary in the code. Your comments should be such that an intermediate level JavaScript developers with limited Forge experience to understand.
+You should write apps using idiomatic TypeScript, following the conventions already used in this repository.
+You should use verbose commentary in the code. Your comments should be such that an intermediate level developer with limited Forge experience can understand.
 
 # Imports & Libraries
 
 You may import packages from reputable npm libraries when needed.
-You MUST only use UI Kit components available in @forge/react. Forge ONLY supports components from @forge/react. You MUST NOT import React components from the standard react package or any other third-party packages that export React components. Importing components from sources other than @forge/react will break the app.
+You MUST only use UI Kit components available in @forge/react. Forge ONLY supports components from @forge/react. You MUST NOT import UI components from any other third-party packages. Importing UI components from sources other than @forge/react will break the app.
+Standard React imports from `react` (e.g. `import React from 'react'`) are allowed where required by the project's existing TypeScript/JSX setup.
 The @forge/ui package is deprecated and MUST NOT be used. Importing from this package will break the app.
 
 You must install packages using the project's package manager after creating the app and every time you add or update a dependency.

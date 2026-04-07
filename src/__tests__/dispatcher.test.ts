@@ -162,6 +162,27 @@ describe('extractTriggerContext', () => {
     const ctx = extractTriggerContext(event);
     expect(ctx?.sourceBranch).toBe('my-branch');
   });
+
+  it('extracts source branch when branch is an object with a name property', () => {
+    const event = makeEvent({
+      pullrequest: {
+        id: 3,
+        state: 'OPEN',
+        source: { branch: { name: 'feature/object-form' }, commit: { hash: 'aaa' } },
+        destination: { branch: { name: 'main' }, commit: { hash: 'bbb' } },
+      },
+    });
+    const ctx = extractTriggerContext(event);
+    expect(ctx?.sourceBranch).toBe('feature/object-form');
+  });
+
+  it('returns empty string for sourceBranch when branch field is absent', () => {
+    const event = makeEvent({
+      pullrequest: { id: 3, state: 'OPEN', source: {}, destination: {} },
+    });
+    const ctx = extractTriggerContext(event);
+    expect(ctx?.sourceBranch).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
