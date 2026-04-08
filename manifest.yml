@@ -33,6 +33,7 @@ permissions:
   scopes:
     - read:pullrequest:bitbucket
     - read:repository:bitbucket
+    - read:pipeline:bitbucket
     - write:pipeline:bitbucket
-    - write:comment:bitbucket
+    - write:pullrequest:bitbucket
     - storage:app
