@@ -45,3 +45,4 @@ permissions:
         # Leave this list empty by default and add only exact hostnames as needed.
         # Example:
         #   - 'jenkins.example.com'
+        []

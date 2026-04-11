@@ -3,7 +3,7 @@ name: Deploy Atlassian Forge App
 on:
   push:
     branches:
-      - main # Triggers deployment when code is merged to the main branch
+      - '**' # Triggers on all branches so feature branches deploy to development for pre-merge validation
 
 jobs:
   test:

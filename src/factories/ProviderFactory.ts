@@ -10,7 +10,7 @@
  *   3. Egress declarations in manifest.yml (if the provider is external)
  */
 
-import { storage } from '@forge/api';
+import kvs from '@forge/kvs';
 import type { CIProvider } from '../interfaces/CIProvider';
 import { CIProviderError } from '../interfaces/CIProviderError';
 import { BitbucketPipelinesProvider } from '../providers/BitbucketPipelinesProvider';
@@ -47,7 +47,7 @@ export class ProviderFactory {
       case 'JENKINS': {
         // The token is provisioned outside the settings UI (for example via
         // Forge CLI or other admin tooling) and read here with getSecret().
-        const jenkinsToken = await storage.getSecret(JENKINS_TOKEN_KEY);
+        const jenkinsToken = await kvs.getSecret(JENKINS_TOKEN_KEY);
 
         if (!jenkinsToken) {
           throw new CIProviderError(

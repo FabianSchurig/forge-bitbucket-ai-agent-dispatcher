@@ -13,6 +13,9 @@ jest.mock('@forge/kvs', () => ({
   default: {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined),
+    getSecret: jest.fn().mockResolvedValue(undefined),
+    setSecret: jest.fn().mockResolvedValue(undefined),
+    deleteSecret: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -44,10 +47,7 @@ jest.mock('@forge/api', () => ({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const kvsMock = jest.requireMock('@forge/kvs') as any;
 const mockKvsGet: jest.Mock = kvsMock.default.get;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const forgeApiMock = jest.requireMock('@forge/api') as any;
-const mockGetSecret: jest.Mock = forgeApiMock.storage.getSecret;
+const mockGetSecret: jest.Mock = kvsMock.default.getSecret;
 
 // ---------------------------------------------------------------------------
 // Tests
