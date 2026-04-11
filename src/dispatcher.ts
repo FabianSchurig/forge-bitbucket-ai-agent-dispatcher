@@ -1,10 +1,13 @@
 import api, { route } from '@forge/api';
 import { getSettings } from './storage';
-import {
+import { ProviderFactory } from './factories/ProviderFactory';
+import { CIProviderError } from './interfaces/CIProviderError';
+import type {
   AppConfig,
   DispatchContext,
   PipelinePayload,
 } from './types';
+import type { BuildPayload } from './interfaces/CIProvider';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (easily unit-tested without mocking Forge APIs)
@@ -224,7 +227,11 @@ export async function postFailureComment(
  * Forge trigger handler for the `avi:bitbucket:created:pullrequest-comment`
  * event.  Fetches comment content and repo details (since the Forge event
  * only provides UUIDs and IDs), checks for the configured trigger keyword,
- * and dispatches a pipeline in the hub repository.
+ * and dispatches a build via the configured CI/CD provider (Strategy Pattern).
+ *
+ * The dispatcher is completely decoupled from the CI backend — it delegates
+ * to the ProviderFactory which returns the correct CIProvider implementation
+ * based on the workspace configuration.
  */
 export async function runDispatcher(event: Record<string, unknown>): Promise<void> {
   // Log only safe, non-sensitive identifiers — never the full event payload.
@@ -280,18 +287,32 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     context.workspace = workspaceSlug;
     context.repoSlug = repoSlug;
 
-    const hubWorkspace = config.hubWorkspace || context.workspace;
-    const effectiveConfig: AppConfig = { ...config, hubWorkspace };
-    const payload = buildPipelinePayload(context, effectiveConfig);
+    // Build a generic BuildPayload from the dispatch context.
+    const buildPayload: BuildPayload = {
+      branch: context.sourceBranch,
+      repoName: context.repoSlug,
+      workspace: context.workspace,
+      prId: context.prId,
+      commentText: context.commentText,
+      commentAuthor: context.commentAuthor,
+    };
 
-    await triggerPipeline(hubWorkspace, config.hubRepository, payload);
+    // Use the ProviderFactory to get the configured CI provider (Strategy Pattern).
+    // The dispatcher does not know or care whether this is Jenkins, Pipelines, etc.
+    const ciProvider = await ProviderFactory.getProvider();
+    const result = await ciProvider.triggerBuild(buildPayload, context);
 
     console.log(
-      `Dispatcher: pipeline successfully triggered in ` +
-      `${hubWorkspace}/${config.hubRepository}.`,
+      `Dispatcher: ${result.message}`,
     );
   } catch (error) {
-    console.error('Dispatcher: failed to dispatch pipeline:', error);
+    // Log the specific provider name if available via CIProviderError.
+    if (error instanceof CIProviderError) {
+      console.error(`Dispatcher: ${error.providerName} failed:`, error.message);
+    } else {
+      console.error('Dispatcher: failed to dispatch build:', error);
+    }
+
     await postFailureComment(
       context.workspaceUuid,
       context.repoUuid,

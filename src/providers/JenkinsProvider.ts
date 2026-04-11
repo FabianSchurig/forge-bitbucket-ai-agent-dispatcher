@@ -37,6 +37,7 @@ export class JenkinsProvider implements CIProvider {
   // CIProvider.triggerBuild
   // -----------------------------------------------------------------------
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async triggerBuild(payload: BuildPayload, _context: DispatchContext): Promise<BuildResult> {
     // Build the Jenkins "buildWithParameters" URL.
     // Jenkins expects query-string parameters for a parameterised build.

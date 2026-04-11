@@ -85,6 +85,24 @@ jest.mock('@forge/react', () => {
         placeholder,
         onChange,
       }),
+    Select: ({
+      inputId,
+      name,
+      value,
+    }: {
+      inputId?: string;
+      name?: string;
+      options?: Array<{ label: string; value: string }>;
+      value?: { label: string; value: string };
+      onChange?: (option: unknown) => void;
+    }) =>
+      actual.createElement('select', {
+        id: inputId,
+        name,
+        'data-testid': `select-${name ?? inputId}`,
+        value: value?.value ?? '',
+        readOnly: true,
+      }),
   };
 });
 
@@ -113,10 +131,37 @@ describe('SettingsForm', () => {
       expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
     });
 
+    // CI provider selector should be present
+    expect(screen.getByTestId('select-ciType')).toBeInTheDocument();
+
+    // Bitbucket Pipelines fields should be visible (default ciType)
     expect(screen.getByPlaceholderText(/leave blank/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('ai-agent-hub')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/custom: run-agent-session/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('main')).toBeInTheDocument();
+  });
+
+  it('shows Jenkins fields when ciType is JENKINS', async () => {
+    mockInvoke.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'https://jenkins.example.com',
+      jenkinsJobPath: 'job/my-job',
+    });
+
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // Jenkins-specific fields should be visible
+    expect(screen.getByPlaceholderText('https://jenkins.example.com')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('job/my-folder/job/my-job')).toBeInTheDocument();
+
+    // Bitbucket Pipelines fields should NOT be visible
+    expect(screen.queryByPlaceholderText(/leave blank/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('ai-agent-hub')).not.toBeInTheDocument();
   });
 
   it('displays an error message when loading fails', async () => {

@@ -30,3 +30,4 @@ export const SectionMessage = makeStub('SectionMessage');
 export const Stack = makeStub('Stack');
 export const Text = makeStub('Text');
 export const Textfield = makeStub('Textfield');
+export const Select = makeStub('Select');

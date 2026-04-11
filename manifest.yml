@@ -37,3 +37,13 @@ permissions:
     - write:pipeline:bitbucket
     - write:pullrequest:bitbucket
     - storage:app
+  external:
+    fetch:
+      backend:
+        # Jenkins instances — workspace admins must add their Jenkins URL(s) here.
+        # Forge blocks outbound requests to any domain not explicitly listed.
+        # Wildcard example (allow any subdomain of a corporate domain):
+        #   - '*.example-corp.com'
+        # Specific instance example:
+        #   - 'jenkins.example.com'
+        - '*.jenkins.io'
