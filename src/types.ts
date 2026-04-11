@@ -2,10 +2,23 @@
  * Shared TypeScript types for the Forge Bitbucket AI Agent Dispatcher.
  */
 
+import type { CIProviderType } from './interfaces/CIProvider';
+
 /** Configuration stored in Forge Storage for the dispatcher app. */
 export interface AppConfig {
   /** The keyword that triggers the agent pipeline (e.g. "@agent"). */
   triggerKeyword: string;
+
+  // -- CI Provider selection ------------------------------------------------
+
+  /**
+   * Which CI/CD provider to use for dispatching builds.
+   * Defaults to 'BITBUCKET_PIPELINES' for backward compatibility.
+   */
+  ciType: CIProviderType;
+
+  // -- Bitbucket Pipelines settings -----------------------------------------
+
   /** Workspace slug of the hub repository. Empty string means "use the current workspace". */
   hubWorkspace: string;
   /** Repository slug of the hub repository. */
@@ -14,15 +27,31 @@ export interface AppConfig {
   hubPipeline: string;
   /** Branch in the hub repository where the pipeline definition exists. */
   pipelineBranch: string;
+
+  // -- Jenkins settings -----------------------------------------------------
+
+  /**
+   * Base URL of the Jenkins instance (e.g. "https://jenkins.example.com").
+   * Only used when ciType is 'JENKINS'.
+   */
+  jenkinsUrl: string;
+  /**
+   * Full path of the Jenkins job to trigger (e.g. "job/my-folder/job/my-job").
+   * Only used when ciType is 'JENKINS'.
+   */
+  jenkinsJobPath: string;
 }
 
 /** Default configuration values. */
 export const DEFAULT_CONFIG: AppConfig = {
   triggerKeyword: '@agent',
+  ciType: 'BITBUCKET_PIPELINES',
   hubWorkspace: '',
   hubRepository: 'ai-agent-hub',
   hubPipeline: 'custom: run-agent-session',
   pipelineBranch: 'main',
+  jenkinsUrl: '',
+  jenkinsJobPath: '',
 };
 
 /** Context extracted from a pull-request comment event. */
@@ -31,6 +60,12 @@ export interface DispatchContext {
   workspaceUuid: string;
   /** Repository UUID from the Forge event (e.g. "{uuid-here}"). */
   repoUuid: string;
+  /**
+   * Bitbucket project UUID from the Forge event (e.g. "{uuid-here}").
+   * Used to look up project-scoped configuration.
+   * Empty string if the repository is not part of a project.
+   */
+  projectUuid: string;
   /** Workspace slug of the spoke repository (populated via API). */
   workspace: string;
   /** Repository slug of the spoke repository (populated via API). */

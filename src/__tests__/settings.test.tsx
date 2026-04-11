@@ -9,12 +9,16 @@ import { DEFAULT_CONFIG } from '../types';
 
 jest.mock('@forge/bridge', () => ({
   invoke: jest.fn(),
+  view: {
+    getContext: jest.fn(),
+  },
 }));
 
 // Retrieve a stable reference after the mock factory has run.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const bridgeMock = jest.requireMock('@forge/bridge') as any;
 const mockInvoke: jest.Mock = bridgeMock.invoke;
+const mockGetContext: jest.Mock = bridgeMock.view.getContext;
 
 // ---------------------------------------------------------------------------
 // Mock @forge/react (UI Kit components → render as plain HTML)
@@ -85,6 +89,24 @@ jest.mock('@forge/react', () => {
         placeholder,
         onChange,
       }),
+    Select: ({
+      inputId,
+      name,
+      value,
+    }: {
+      inputId?: string;
+      name?: string;
+      options?: Array<{ label: string; value: string }>;
+      value?: { label: string; value: string };
+      onChange?: (option: unknown) => void;
+    }) =>
+      actual.createElement('select', {
+        id: inputId,
+        name,
+        'data-testid': `select-${name ?? inputId}`,
+        value: value?.value ?? '',
+        readOnly: true,
+      }),
   };
 });
 
@@ -95,6 +117,13 @@ jest.mock('@forge/react', () => {
 describe('SettingsForm', () => {
   beforeEach(() => {
     mockInvoke.mockReset();
+    mockGetContext.mockReset();
+    // Default: view.getContext resolves with a project context.
+    mockGetContext.mockResolvedValue({
+      extension: {
+        project: { uuid: '{proj-uuid-test}' },
+      },
+    });
   });
 
   it('shows a loading indicator while fetching settings', () => {
@@ -113,14 +142,41 @@ describe('SettingsForm', () => {
       expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
     });
 
+    // CI provider selector should be present
+    expect(screen.getByTestId('select-ciType')).toBeInTheDocument();
+
+    // Bitbucket Pipelines fields should be visible (default ciType)
     expect(screen.getByPlaceholderText(/leave blank/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('ai-agent-hub')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/custom: run-agent-session/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('main')).toBeInTheDocument();
   });
 
+  it('shows Jenkins fields when ciType is JENKINS', async () => {
+    mockInvoke.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'https://jenkins.example.com',
+      jenkinsJobPath: 'job/my-job',
+    });
+
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // Jenkins-specific fields should be visible
+    expect(screen.getByPlaceholderText('https://jenkins.example.com')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('job/my-folder/job/my-job')).toBeInTheDocument();
+
+    // Bitbucket Pipelines fields should NOT be visible
+    expect(screen.queryByPlaceholderText(/leave blank/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('ai-agent-hub')).not.toBeInTheDocument();
+  });
+
   it('displays an error message when loading fails', async () => {
-    mockInvoke.mockRejectedValue(new Error('Network error'));
+    mockGetContext.mockRejectedValue(new Error('Context error'));
 
     render(<SettingsForm />);
 
@@ -129,13 +185,13 @@ describe('SettingsForm', () => {
     });
   });
 
-  it('calls invoke("getSettings") on mount', async () => {
+  it('passes project UUID to the getSettings resolver', async () => {
     mockInvoke.mockResolvedValue(DEFAULT_CONFIG);
 
     render(<SettingsForm />);
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('getSettings');
+      expect(mockInvoke).toHaveBeenCalledWith('getSettings', { projectUuid: '{proj-uuid-test}' });
     });
   });
 
@@ -155,6 +211,31 @@ describe('SettingsForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/saved successfully/i)).toBeInTheDocument();
+    });
+  });
+
+  it('passes project UUID to the saveSettings resolver', async () => {
+    mockInvoke
+      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+
+    const { container } = render(<SettingsForm />);
+
+    await waitFor(() => screen.getByDisplayValue(DEFAULT_CONFIG.triggerKeyword));
+
+    await act(async () => {
+      const form = container.querySelector('form')!;
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() => {
+      // The second invoke call should include projectUuid and config.
+      const saveCall = mockInvoke.mock.calls.find(
+        (call: unknown[]) => call[0] === 'saveSettings',
+      );
+      expect(saveCall).toBeDefined();
+      expect(saveCall![1]).toHaveProperty('projectUuid', '{proj-uuid-test}');
+      expect(saveCall![1]).toHaveProperty('config');
     });
   });
 

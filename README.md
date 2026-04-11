@@ -5,13 +5,15 @@ An [Atlassian Forge](https://developer.atlassian.com/platform/forge/) applicatio
 When a user posts a comment containing a configurable trigger keyword (default: `@agent`) on any Pull Request in the workspace, the app:
 
 1. Extracts the PR context (workspace, repo, branch, comment author, etc.)
-2. Triggers a custom pipeline in a central **hub repository** via the Bitbucket Pipelines API
-3. Passes the full PR context as pipeline variables so the hub pipeline knows which spoke to act upon
-4. Posts a friendly failure comment on the PR if the pipeline cannot be triggered
+2. Uses the configured **CI/CD provider** to trigger a build (Bitbucket Pipelines or Jenkins)
+3. Passes the full PR context as build parameters so the CI environment knows which spoke to act upon
+4. Posts a friendly failure comment on the PR if the build cannot be triggered
 
 ---
 
 ## Architecture
+
+The app uses the **Strategy Pattern** and **Factory Pattern** to support multiple CI/CD providers without any `if/else` branching in the core dispatch logic:
 
 ```
 Spoke Repository (PR comment: "@agent …")
@@ -20,12 +22,23 @@ Spoke Repository (PR comment: "@agent …")
 Forge App (Dispatcher)
   ├─ detects trigger keyword
   ├─ fetches PR source-branch via Bitbucket API
-  └─ POST /2.0/repositories/{hub-ws}/{hub-repo}/pipelines/
-             │
-             ▼
-       Hub Repository  (ai-agent-hub)
-         └─ custom pipeline runs the AI agent logic
+  ├─ ProviderFactory.getProvider()          ← Factory Pattern
+  │     ├─ BitbucketPipelinesProvider       ← Strategy A
+  │     └─ JenkinsProvider                  ← Strategy B
+  └─ ciProvider.triggerBuild(payload)       ← Strategy Pattern
+              │
+              ▼
+       CI Environment (Bitbucket Pipelines or Jenkins)
+         └─ runs the AI agent logic
 ```
+
+### Adding a New Provider
+
+1. Create a new class in `src/providers/` that implements `CIProvider`
+2. Register it in `src/factories/ProviderFactory.ts` (add a `case` to the `switch`)
+3. Add provider-specific fields to `AppConfig` in `src/types.ts`
+4. Add the provider option to the settings UI in `src/settings.tsx`
+5. Declare any new egress domains in `manifest.yml`
 
 ---
 
@@ -75,28 +88,48 @@ forge deploy -e development
 forge install --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development
 ```
 
-> **Important:** The first install must be performed manually from a developer machine.  
+> **Important:** The first install must be performed manually from a developer machine.
 > The CI/CD pipeline uses `forge install --upgrade` which requires an existing installation UUID.
 
 ---
 
-## Configuration (Workspace Settings)
+## Configuration (Project Settings)
 
-After installation, navigate to your Bitbucket workspace → **Settings → AI Agent Dispatcher Settings** to configure:
+After installation, navigate to your Bitbucket **Project → Settings → AI Agent Dispatcher Settings** to configure. Configuration is scoped to the Bitbucket project — all repositories within the project inherit the same CI/CD settings. Bitbucket natively restricts this page to Project Admins via RBAC.
+
+### General Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Trigger Keyword | `@agent` | String the app listens for in PR comments |
+| CI/CD Provider | `Bitbucket Pipelines` | Which CI/CD backend to use |
+
+### Bitbucket Pipelines Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
 | Hub Workspace Slug | *(current workspace)* | Workspace containing the hub repository |
 | Hub Repository Slug | `ai-agent-hub` | Name of the central hub repository |
 | Hub Pipeline Name | `custom: run-agent-session` | Name of the custom pipeline to trigger |
 | Pipeline Branch Name | `main` | Branch in the hub repo where the pipeline is defined |
 
+### Jenkins Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Jenkins URL | *(empty)* | Base URL of the Jenkins instance (e.g. `https://jenkins.example.com`) |
+| Jenkins Job Path | *(empty)* | Path to the Jenkins job (e.g. `job/my-folder/job/my-job`) |
+
+> **Security:** The Jenkins API token must be stored using Forge Encrypted Storage:
+> ```bash
+> forge storage set-secret --key jenkins-api-token --value YOUR_BASE64_TOKEN
+> ```
+
 ---
 
-## Pipeline Variables Injected
+## Pipeline Variables / Build Parameters
 
-The following variables are passed to the triggered pipeline:
+The following variables are passed to the triggered build:
 
 | Variable | Description |
 |----------|-------------|
@@ -118,11 +151,12 @@ npm run test:coverage       # run tests with coverage report
 
 The test suite covers:
 
-- **Unit tests** – `extractTriggerContext`, `buildPipelinePayload`, `fetchRepositoryDetails`, `fetchCommentContent`, `triggerPipeline`, `postFailureComment`, and `runDispatcher` (dispatcher logic)
-- **Integration-style unit tests** – `getSettings` and `saveSettings` (Forge Storage interactions)
-- **Component tests** – `SettingsForm` (settings UI rendering and form submission)
+- **Unit tests** – `CIProviderError`, `BitbucketPipelinesProvider`, `JenkinsProvider`, `ProviderFactory`
+- **Integration tests** – `extractTriggerContext`, `buildPipelinePayload`, `fetchRepositoryDetails`, `fetchCommentContent`, `triggerPipeline`, `postFailureComment`, and `runDispatcher` (dispatcher logic)
+- **Storage tests** – `getSettings` and `saveSettings` (Forge Storage interactions)
+- **Component tests** – `SettingsForm` (settings UI rendering, CI provider selection, and form submission)
 
-All Forge APIs (`@forge/api`, `@forge/react`, `@forge/resolver`, `@forge/bridge`) are mocked so the test suite runs in a plain Node.js/jsdom environment with no Atlassian infrastructure required.
+All Forge APIs (`@forge/api`, `@forge/react`, `@forge/resolver`, `@forge/bridge`, `@forge/kvs`) are mocked so the test suite runs in a plain Node.js/jsdom environment with no Atlassian infrastructure required.
 
 ---
 
@@ -132,7 +166,7 @@ The workflow at `.github/workflows/deploy-forge-app.yml` automatically runs test
 
 ### Prerequisites
 
-Add the following **Repository Secrets** under  
+Add the following **Repository Secrets** under
 `Settings → Secrets and variables → Actions`:
 
 | Secret | Description |
@@ -140,7 +174,7 @@ Add the following **Repository Secrets** under
 | `FORGE_EMAIL` | Email address of the Atlassian Developer account that owns the app |
 | `FORGE_API_TOKEN` | Atlassian API token (generate at [Atlassian Account Security](https://id.atlassian.com/manage-profile/security)) |
 
-> The Forge CLI uses these environment variables to authenticate headlessly, bypassing the interactive login prompt that would hang in a CI environment.  
+> The Forge CLI uses these environment variables to authenticate headlessly, bypassing the interactive login prompt that would hang in a CI environment.
 > Do **not** use third-party "Forge Deploy" actions from the GitHub Marketplace – the official `@forge/cli` npm package is Atlassian's supported CI/CD method.
 
 ### Workflow steps
@@ -166,8 +200,19 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 | `read:pullrequest:bitbucket` | Fetch PR details (source branch name) |
 | `read:repository:bitbucket` | Fetch repository slug and workspace slug from UUIDs |
 | `write:pipeline:bitbucket` | Trigger a custom pipeline in the hub repository |
-| `write:comment:bitbucket` | Post a failure reply comment on the PR |
+| `write:pullrequest:bitbucket` | Post a failure reply comment on the PR |
+| `read:pipeline:bitbucket` | Check build status via Bitbucket Pipelines API |
 | `storage:app` | Persist and retrieve workspace configuration |
+
+---
+
+## External Egress Permissions
+
+| Domain | Justification |
+|--------|---------------|
+| `jenkins.mycompany.com` | Example Jenkins hostname. Admins must update `manifest.yml` with their actual Jenkins server domain. Avoid wildcard domains unless strictly necessary. |
+
+> **Important:** Forge blocks all outbound HTTP requests to domains not declared in `manifest.yml`. If using Jenkins, set this to your actual Jenkins server domain (for example, `jenkins.mycompany.com`) and avoid wildcards unless they are strictly required.
 
 ---
 
@@ -186,10 +231,22 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 └── src/
     ├── index.ts              Entry point – re-exports all Forge handler functions
     ├── types.ts              Shared TypeScript interfaces and defaults
-    ├── storage.ts            Forge Storage read/write helpers
+    ├── storage.ts            Project-scoped Forge Storage read/write helpers
+    ├── pipelinePayload.ts    Shared Bitbucket Pipelines payload builder
     ├── dispatcher.ts         PR comment trigger handler and Bitbucket API helpers
-    ├── resolvers.ts          Forge resolver for settings page backend calls
-    ├── settings.tsx          Workspace settings UI (Forge UI Kit 2)
+    ├── resolvers.ts          Forge resolver for settings + startDeployment
+    ├── settings.tsx          Project settings UI (Forge UI Kit 2)
+    ├── interfaces/           CIProvider contract and CIProviderError
+    │   ├── CIProvider.ts     Strategy Pattern interface
+    │   ├── CIProviderError.ts Standardised error class for all providers
+    │   └── index.ts          Re-exports
+    ├── providers/            Provider implementations (Strategy Pattern)
+    │   ├── BitbucketPipelinesProvider.ts
+    │   ├── JenkinsProvider.ts
+    │   └── index.ts          Re-exports
+    ├── factories/            Factory for instantiating providers
+    │   ├── ProviderFactory.ts
+    │   └── index.ts          Re-exports
     ├── __mocks__/            Manual Jest mocks for @forge/* packages
     └── __tests__/            Unit and component tests
 ```

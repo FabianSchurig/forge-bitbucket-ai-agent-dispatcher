@@ -74,7 +74,10 @@ function makeEvent(overrides: Record<string, unknown> = {}): Record<string, unkn
         commit: { hash: 'def456' },
       },
     },
-    repository: { uuid: '{repo-uuid-1234}' },
+    repository: {
+      uuid: '{repo-uuid-1234}',
+      project: { uuid: '{proj-uuid-9999}' },
+    },
     workspace: { uuid: '{ws-uuid-5678}' },
     actor: { type: 'user', accountId: 'user-123', uuid: '{actor-uuid}' },
     ...overrides,
@@ -87,6 +90,7 @@ function makeContext(overrides: Partial<DispatchContext> = {}): DispatchContext 
   return {
     workspaceUuid: '{ws-uuid-5678}',
     repoUuid: '{repo-uuid-1234}',
+    projectUuid: '{proj-uuid-9999}',
     workspace: 'my-workspace',
     repoSlug: 'spoke-repo',
     prId: 7,
@@ -108,6 +112,7 @@ describe('extractTriggerContext', () => {
     expect(ctx).not.toBeNull();
     expect(ctx?.workspaceUuid).toBe('{ws-uuid-5678}');
     expect(ctx?.repoUuid).toBe('{repo-uuid-1234}');
+    expect(ctx?.projectUuid).toBe('{proj-uuid-9999}');
     expect(ctx?.prId).toBe(7);
     expect(ctx?.commentId).toBe(42);
     expect(ctx?.commentAuthor).toBe('user-123');
@@ -116,6 +121,14 @@ describe('extractTriggerContext', () => {
     expect(ctx?.workspace).toBe('');
     expect(ctx?.repoSlug).toBe('');
     expect(ctx?.commentText).toBe('');
+  });
+
+  it('returns empty string for projectUuid when project is missing', () => {
+    const event = makeEvent({
+      repository: { uuid: '{repo-uuid-1234}' }, // no project field
+    });
+    const ctx = extractTriggerContext(event);
+    expect(ctx?.projectUuid).toBe('');
   });
 
   it('returns null when workspace UUID is missing', () => {

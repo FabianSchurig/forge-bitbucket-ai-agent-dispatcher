@@ -5,7 +5,7 @@ modules:
       events:
         - avi:bitbucket:created:pullrequest-comment
 
-  bitbucket:workspaceSettingsMenuPage:
+  bitbucket:projectSettingsMenuPage:
     - key: settings-page
       resource: settings-ui
       render: native
@@ -37,3 +37,11 @@ permissions:
     - write:pipeline:bitbucket
     - write:pullrequest:bitbucket
     - storage:app
+  external:
+    fetch:
+      backend:
+        # Jenkins instances — workspace admins must add their Jenkins host(s) here.
+        # Forge blocks outbound requests to any domain not explicitly listed.
+        # Leave this list empty by default and add only exact hostnames as needed.
+        # Example:
+        #   - 'jenkins.example.com'
