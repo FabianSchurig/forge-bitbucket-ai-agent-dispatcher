@@ -51,6 +51,12 @@ export const SettingsForm = () => {
         const ext = ctx?.extension as Record<string, unknown> | undefined;
         const project = ext?.project as Record<string, unknown> | undefined;
         const uuid = (project?.uuid as string) ?? '';
+        if (!uuid) {
+          console.warn(
+            'SettingsForm: no project UUID found in extension context. ' +
+            'Settings will fall back to the legacy global configuration.',
+          );
+        }
         setProjectUuid(uuid);
 
         // Pass the project UUID to the resolver so it fetches project-scoped config.

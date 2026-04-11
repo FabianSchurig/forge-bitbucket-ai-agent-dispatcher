@@ -19,6 +19,10 @@ function projectKey(projectUuid: string): string {
 /**
  * Builds the Forge Storage key for a repository-scoped config override.
  * Repository-level overrides take priority over project-level config.
+ *
+ * Repo-level overrides are designed for future use — admins can set them
+ * via the Forge CLI (`forge storage set`) or direct Storage API calls.
+ * A repository-level settings UI may be added later.
  */
 function repoKey(repoUuid: string): string {
   return `dispatch-config-repo-${repoUuid}`;

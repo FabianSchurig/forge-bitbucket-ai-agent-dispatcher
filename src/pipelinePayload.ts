@@ -18,6 +18,11 @@ export function buildPipelinePayload(
   // Strip the "custom: " prefix so we only pass the pipeline pattern name.
   const pipelineName = config.hubPipeline.replace(/^custom:\s*/i, '');
 
+  // COMMENT_TEXT is included in the Bitbucket Pipelines payload as a POST
+  // body variable — this is safe because the data is sent over an encrypted
+  // channel in a JSON body (never exposed in URL/proxy logs).  The Jenkins
+  // provider intentionally excludes comment text from URL query parameters
+  // for security reasons and sends only COMMENT_ID instead.
   return {
     target: {
       type: 'pipeline_ref_target',

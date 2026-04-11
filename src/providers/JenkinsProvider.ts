@@ -135,7 +135,8 @@ export class JenkinsProvider implements CIProvider {
       // get the real status.  Queue items typically don't include the build
       // result; that lives on the build endpoint.
       const executableUrl = typeof executable.url === 'string' ? executable.url : '';
-      if (!executableUrl) {
+      if (!executableUrl || !/^https?:\/\//i.test(executableUrl)) {
+        // No valid URL — the build is likely still being allocated.
         return 'IN_PROGRESS';
       }
 
