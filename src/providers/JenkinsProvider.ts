@@ -25,7 +25,8 @@ export class JenkinsProvider implements CIProvider {
 
   /**
    * @param config - The full AppConfig (jenkinsUrl and jenkinsJobPath are read).
-   * @param apiToken - Jenkins API token retrieved from Forge Encrypted Storage.
+   * @param apiToken - Base64-encoded "username:token" string for Jenkins Basic auth,
+   *                   retrieved from Forge Encrypted Storage.
    */
   constructor(config: AppConfig, apiToken: string) {
     this.jenkinsUrl = config.jenkinsUrl.replace(/\/+$/, ''); // strip trailing slashes

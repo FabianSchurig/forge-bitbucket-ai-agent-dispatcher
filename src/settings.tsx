@@ -194,7 +194,8 @@ export const SettingsForm = () => {
             <SectionMessage appearance="warning" title="Security Notice">
               <Text>
                 Jenkins API tokens are stored using Forge Encrypted Storage and are never visible in plain text.
-                Use the Forge CLI to set the token: forge storage:set-secret jenkins-api-token YOUR_TOKEN
+                Use the Forge CLI to set the token: forge storage set-secret --key jenkins-api-token --value YOUR_BASE64_TOKEN
+                The token value should be a Base64-encoded username:apiToken string.
               </Text>
             </SectionMessage>
           </FormSection>

@@ -122,7 +122,7 @@ After installation, navigate to your Bitbucket workspace → **Settings → AI A
 
 > **Security:** The Jenkins API token must be stored using Forge Encrypted Storage:
 > ```bash
-> forge storage:set-secret jenkins-api-token YOUR_BASE64_TOKEN
+> forge storage set-secret --key jenkins-api-token --value YOUR_BASE64_TOKEN
 > ```
 
 ---
