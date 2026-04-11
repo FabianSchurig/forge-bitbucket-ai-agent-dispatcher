@@ -63,13 +63,13 @@ describe('ProviderFactory', () => {
 
   it('returns a BitbucketPipelinesProvider when ciType is BITBUCKET_PIPELINES', async () => {
     // DEFAULT_CONFIG.ciType is 'BITBUCKET_PIPELINES'
-    const provider = await ProviderFactory.getProvider();
+    const provider = await ProviderFactory.getProvider('{proj-uuid}');
     expect(provider).toBeInstanceOf(BitbucketPipelinesProvider);
   });
 
   it('returns a BitbucketPipelinesProvider when no config is stored (defaults)', async () => {
     mockKvsGet.mockResolvedValue(undefined);
-    const provider = await ProviderFactory.getProvider();
+    const provider = await ProviderFactory.getProvider('{proj-uuid}');
     expect(provider).toBeInstanceOf(BitbucketPipelinesProvider);
   });
 
@@ -82,7 +82,7 @@ describe('ProviderFactory', () => {
     });
     mockGetSecret.mockResolvedValue('my-secret-token');
 
-    const provider = await ProviderFactory.getProvider();
+    const provider = await ProviderFactory.getProvider('{proj-uuid}');
     expect(provider).toBeInstanceOf(JenkinsProvider);
   });
 
@@ -95,8 +95,8 @@ describe('ProviderFactory', () => {
     });
     mockGetSecret.mockResolvedValue(undefined);
 
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(CIProviderError);
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(/No API token configured/);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(CIProviderError);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(/No API token configured/);
   });
 
   it('throws CIProviderError when ciType is JENKINS but jenkinsUrl is empty', async () => {
@@ -108,8 +108,21 @@ describe('ProviderFactory', () => {
     });
     mockGetSecret.mockResolvedValue('my-secret-token');
 
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(CIProviderError);
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(/No Jenkins URL configured/);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(CIProviderError);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(/No Jenkins URL configured/);
+  });
+
+  it('throws CIProviderError when ciType is JENKINS but jenkinsJobPath is empty', async () => {
+    mockKvsGet.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'https://jenkins.example.com',
+      jenkinsJobPath: '',
+    });
+    mockGetSecret.mockResolvedValue('my-secret-token');
+
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(CIProviderError);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(/No Jenkins job path configured/);
   });
 
   it('throws CIProviderError for an unsupported ciType', async () => {
@@ -118,8 +131,8 @@ describe('ProviderFactory', () => {
       ciType: 'GITHUB_ACTIONS', // not yet supported
     });
 
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(CIProviderError);
-    await expect(ProviderFactory.getProvider()).rejects.toThrow(/Unsupported CI provider type/);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(CIProviderError);
+    await expect(ProviderFactory.getProvider('{proj-uuid}')).rejects.toThrow(/Unsupported CI provider type/);
   });
 
   it('retrieves the Jenkins token from encrypted storage', async () => {
@@ -131,7 +144,7 @@ describe('ProviderFactory', () => {
     });
     mockGetSecret.mockResolvedValue('encrypted-token-value');
 
-    await ProviderFactory.getProvider();
+    await ProviderFactory.getProvider('{proj-uuid}');
 
     expect(mockGetSecret).toHaveBeenCalledWith('jenkins-api-token');
   });

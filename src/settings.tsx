@@ -11,7 +11,7 @@ import ForgeReconciler, {
   Text,
   Select,
 } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import { invoke, view } from '@forge/bridge';
 import { AppConfig, DEFAULT_CONFIG } from './types';
 import type { CIProviderType } from './interfaces/CIProvider';
 
@@ -36,17 +36,34 @@ export const SettingsForm = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // The Bitbucket project UUID is extracted from the Forge extension context.
+  // When the settings page is rendered inside Project Settings, the context
+  // includes the project this page belongs to.
+  const [projectUuid, setProjectUuid] = useState<string>('');
+
   useEffect(() => {
-    invoke<AppConfig>('getSettings')
-      .then((data) => {
+    // Retrieve the project UUID from the Forge extension context.
+    // For bitbucket:projectSettingsMenuPage, this is at
+    // context.extension.project.uuid.
+    const loadContext = async (): Promise<void> => {
+      try {
+        const ctx = await view.getContext();
+        const ext = ctx?.extension as Record<string, unknown> | undefined;
+        const project = ext?.project as Record<string, unknown> | undefined;
+        const uuid = (project?.uuid as string) ?? '';
+        setProjectUuid(uuid);
+
+        // Pass the project UUID to the resolver so it fetches project-scoped config.
+        const data = await invoke<AppConfig>('getSettings', { projectUuid: uuid });
         setFormValues(data ?? DEFAULT_CONFIG);
-        setLoading(false);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         console.error('Failed to load settings:', err);
-        setLoading(false);
         setErrorMsg('Failed to load settings. Showing defaults.');
-      });
+      } finally {
+        setLoading(false);
+      }
+    };
+    void loadContext();
   }, []);
 
   // Helper to update a single text field in formValues state.
@@ -72,7 +89,8 @@ export const SettingsForm = () => {
     setErrorMsg(null);
 
     try {
-      await invoke('saveSettings', formValues);
+      // Pass the project UUID so settings are saved under the project-scoped key.
+      await invoke('saveSettings', { config: formValues, projectUuid });
       setSaved(true);
     } catch (err: unknown) {
       console.error('Failed to save settings:', err);

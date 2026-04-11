@@ -51,6 +51,7 @@ function makeContext(overrides: Partial<DispatchContext> = {}): DispatchContext 
   return {
     workspaceUuid: '{ws-uuid-5678}',
     repoUuid: '{repo-uuid-1234}',
+    projectUuid: '{proj-uuid-9999}',
     workspace: 'my-workspace',
     repoSlug: 'spoke-repo',
     prId: 7,
@@ -70,6 +71,7 @@ function makePayload(overrides: Partial<BuildPayload> = {}): BuildPayload {
     prId: 7,
     commentText: '@agent do something',
     commentAuthor: 'user-123',
+    commentId: 42,
     ...overrides,
   };
 }
@@ -118,6 +120,10 @@ describe('JenkinsProvider', () => {
       expect(calledUrl).toContain('SOURCE_REPO=spoke-repo');
       expect(calledUrl).toContain('PR_ID=7');
       expect(calledUrl).toContain('SOURCE_BRANCH=feature%2Fcool-stuff');
+      // COMMENT_TEXT is intentionally excluded from URL params (security).
+      // Only COMMENT_ID is sent so CI jobs can fetch content server-side.
+      expect(calledUrl).not.toContain('COMMENT_TEXT');
+      expect(calledUrl).toContain('COMMENT_ID=42');
     });
 
     it('sends the Basic auth header', async () => {
@@ -234,26 +240,65 @@ describe('JenkinsProvider', () => {
       expect(status).toBe('QUEUED');
     });
 
-    it('returns the build result when executable is present', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          executable: { number: 10, result: 'SUCCESS', url: 'http://...' },
-        }),
-        text: async () => '',
-      });
+    it('fetches the build endpoint and returns the result when executable has a URL', async () => {
+      // First call: queue item with executable URL
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            executable: { number: 10, url: 'https://jenkins.example.com/job/my-job/10/' },
+          }),
+          text: async () => '',
+        })
+        // Second call: build status endpoint
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            building: false,
+            result: 'SUCCESS',
+          }),
+          text: async () => '',
+        });
 
       const provider = new JenkinsProvider(makeConfig(), 'my-token');
       const status = await provider.getBuildStatus('42');
 
       expect(status).toBe('SUCCESS');
+      // Verify the second fetch was to the executable build API
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const secondUrl = mockFetch.mock.calls[1][0] as string;
+      expect(secondUrl).toBe('https://jenkins.example.com/job/my-job/10/api/json');
     });
 
-    it('returns "IN_PROGRESS" when executable exists but result is null', async () => {
+    it('returns "IN_PROGRESS" when the build is still running', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            executable: { number: 10, url: 'https://jenkins.example.com/job/my-job/10/' },
+          }),
+          text: async () => '',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            building: true,
+            result: null,
+          }),
+          text: async () => '',
+        });
+
+      const provider = new JenkinsProvider(makeConfig(), 'my-token');
+      const status = await provider.getBuildStatus('42');
+
+      expect(status).toBe('IN_PROGRESS');
+    });
+
+    it('returns "IN_PROGRESS" when executable exists but has no URL', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
-          executable: { number: 10, result: null, url: 'http://...' },
+          executable: { number: 10 },
         }),
         text: async () => '',
       });
@@ -278,7 +323,7 @@ describe('JenkinsProvider', () => {
       expect(calledUrl).toBe('https://jenkins.example.com/queue/item/99/api/json');
     });
 
-    it('throws CIProviderError on a non-OK response', async () => {
+    it('throws CIProviderError on a non-OK queue item response', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
         status: 404,
@@ -288,6 +333,26 @@ describe('JenkinsProvider', () => {
       const provider = new JenkinsProvider(makeConfig(), 'my-token');
 
       await expect(provider.getBuildStatus('bad-id')).rejects.toThrow(CIProviderError);
+    });
+
+    it('throws CIProviderError on a non-OK build status response', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            executable: { number: 10, url: 'https://jenkins.example.com/job/my-job/10/' },
+          }),
+          text: async () => '',
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: async () => 'Server Error',
+        });
+
+      const provider = new JenkinsProvider(makeConfig(), 'my-token');
+
+      await expect(provider.getBuildStatus('42')).rejects.toThrow(CIProviderError);
     });
 
     it('wraps unexpected errors in CIProviderError', async () => {

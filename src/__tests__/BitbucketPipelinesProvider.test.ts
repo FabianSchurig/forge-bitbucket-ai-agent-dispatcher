@@ -44,6 +44,7 @@ function makeContext(overrides: Partial<DispatchContext> = {}): DispatchContext 
   return {
     workspaceUuid: '{ws-uuid-5678}',
     repoUuid: '{repo-uuid-1234}',
+    projectUuid: '{proj-uuid-9999}',
     workspace: 'my-workspace',
     repoSlug: 'spoke-repo',
     prId: 7,
@@ -63,6 +64,7 @@ function makePayload(overrides: Partial<BuildPayload> = {}): BuildPayload {
     prId: 7,
     commentText: '@agent do something',
     commentAuthor: 'user-123',
+    commentId: 42,
     ...overrides,
   };
 }
@@ -256,6 +258,15 @@ describe('BitbucketPipelinesProvider', () => {
       const provider = new BitbucketPipelinesProvider(makeConfig({ hubWorkspace: 'my-ws' }));
 
       await expect(provider.getBuildStatus('bad-id')).rejects.toThrow(CIProviderError);
+    });
+
+    it('throws CIProviderError when hubWorkspace is empty', async () => {
+      const provider = new BitbucketPipelinesProvider(makeConfig({ hubWorkspace: '' }));
+
+      await expect(provider.getBuildStatus('build-123')).rejects.toThrow(CIProviderError);
+      await expect(provider.getBuildStatus('build-123')).rejects.toThrow(
+        /Hub workspace must be configured/,
+      );
     });
   });
 });

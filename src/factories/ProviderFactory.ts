@@ -1,7 +1,7 @@
 /**
  * Provider Factory (Factory Method Pattern).
  *
- * Returns the correct CIProvider implementation based on the workspace
+ * Returns the correct CIProvider implementation based on the project-scoped
  * configuration stored in Forge Storage.
  *
  * Adding a new provider requires:
@@ -22,35 +22,51 @@ const JENKINS_TOKEN_KEY = 'jenkins-api-token';
 
 export class ProviderFactory {
   /**
-   * Reads the workspace configuration and returns the appropriate
+   * Reads the project-scoped configuration and returns the appropriate
    * CIProvider instance, ready to use.
+   *
+   * Resolution order for configuration (handled by getSettings):
+   *   1. Repository-scoped config override (if repoUuid supplied)
+   *   2. Project-scoped config
+   *   3. Legacy global config (migration fallback)
+   *   4. DEFAULT_CONFIG
    *
    * Secret credentials (e.g. Jenkins token) are retrieved from Forge
    * Encrypted Storage — they are never stored in plain storage.
+   *
+   * @param projectUuid - Bitbucket project UUID for config lookup.
+   * @param repoUuid    - Optional repo UUID for per-repo overrides.
    */
-  static async getProvider(): Promise<CIProvider> {
-    const config = await getSettings();
+  static async getProvider(projectUuid?: string, repoUuid?: string): Promise<CIProvider> {
+    const config = await getSettings(projectUuid, repoUuid);
 
     switch (config.ciType) {
       case 'BITBUCKET_PIPELINES':
         return new BitbucketPipelinesProvider(config);
 
       case 'JENKINS': {
-        // Retrieve the Jenkins API token from Forge Encrypted Storage.
-        // The token is stored via the settings UI using storage.setSecret().
+        // The token is provisioned outside the settings UI (for example via
+        // Forge CLI or other admin tooling) and read here with getSecret().
         const jenkinsToken = await storage.getSecret(JENKINS_TOKEN_KEY);
 
         if (!jenkinsToken) {
           throw new CIProviderError(
             'Jenkins',
-            'No API token configured. Please add a Jenkins API token in the workspace settings.',
+            'No API token configured. Please configure the Jenkins API token via Forge CLI or other admin tooling.',
           );
         }
 
         if (!config.jenkinsUrl) {
           throw new CIProviderError(
             'Jenkins',
-            'No Jenkins URL configured. Please set the Jenkins URL in the workspace settings.',
+            'No Jenkins URL configured. Please set the Jenkins URL in the project settings.',
+          );
+        }
+
+        if (!config.jenkinsJobPath) {
+          throw new CIProviderError(
+            'Jenkins',
+            'No Jenkins job path configured. Please set the Jenkins job path in the project settings.',
           );
         }
 

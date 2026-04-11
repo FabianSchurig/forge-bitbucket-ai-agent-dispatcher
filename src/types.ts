@@ -60,6 +60,12 @@ export interface DispatchContext {
   workspaceUuid: string;
   /** Repository UUID from the Forge event (e.g. "{uuid-here}"). */
   repoUuid: string;
+  /**
+   * Bitbucket project UUID from the Forge event (e.g. "{uuid-here}").
+   * Used to look up project-scoped configuration.
+   * Empty string if the repository is not part of a project.
+   */
+  projectUuid: string;
   /** Workspace slug of the spoke repository (populated via API). */
   workspace: string;
   /** Repository slug of the spoke repository (populated via API). */

@@ -42,12 +42,18 @@ export class JenkinsProvider implements CIProvider {
   async triggerBuild(payload: BuildPayload, _context: DispatchContext): Promise<BuildResult> {
     // Build the Jenkins "buildWithParameters" URL.
     // Jenkins expects query-string parameters for a parameterised build.
+    //
+    // Security: COMMENT_TEXT is intentionally excluded from the URL parameters.
+    // Comment text can be large and may contain sensitive information; placing
+    // it in the URL risks exposure in proxy/access logs and may exceed URL
+    // length limits.  Instead we pass only stable identifiers (COMMENT_ID)
+    // so the CI job can fetch the full comment text server-side if needed.
     const params = new URLSearchParams({
       SOURCE_WORKSPACE: payload.workspace,
       SOURCE_REPO: payload.repoName,
       PR_ID: String(payload.prId),
       SOURCE_BRANCH: payload.branch,
-      COMMENT_TEXT: payload.commentText,
+      COMMENT_ID: String(payload.commentId),
       COMMENT_AUTHOR: payload.commentAuthor,
     });
 
@@ -98,35 +104,65 @@ export class JenkinsProvider implements CIProvider {
 
   async getBuildStatus(buildId: string): Promise<string> {
     // Jenkins queue items eventually resolve to an executable build.
-    // We first check the queue item, then the build itself.
-    const url = `${this.jenkinsUrl}/queue/item/${buildId}/api/json`;
+    // Step 1: Check the queue item for an executable reference.
+    const queueUrl = `${this.jenkinsUrl}/queue/item/${buildId}/api/json`;
 
     try {
-      const response = await api.fetch(url, {
+      const queueResponse = await api.fetch(queueUrl, {
         method: 'GET',
         headers: {
           Authorization: `Basic ${this.apiToken}`,
         },
       });
 
-      if (!response.ok) {
+      if (!queueResponse.ok) {
         throw new CIProviderError(
           'Jenkins',
-          `Failed to fetch build status: ${response.status}`,
-          response.status,
+          `Failed to fetch queue item status: ${queueResponse.status}`,
+          queueResponse.status,
         );
       }
 
-      const data = (await response.json()) as Record<string, unknown>;
+      const data = (await queueResponse.json()) as Record<string, unknown>;
 
-      // If the queue item has been executed, the "executable" field is present.
+      // If the queue item has not been executed yet, it stays "QUEUED".
       const executable = data?.executable as Record<string, unknown> | undefined;
-      if (executable) {
-        return (executable.result as string) ?? 'IN_PROGRESS';
+      if (!executable) {
+        return 'QUEUED';
       }
 
-      // Still in the queue.
-      return 'QUEUED';
+      // Step 2: The queue item has an executable — fetch the actual build to
+      // get the real status.  Queue items typically don't include the build
+      // result; that lives on the build endpoint.
+      const executableUrl = typeof executable.url === 'string' ? executable.url : '';
+      if (!executableUrl) {
+        return 'IN_PROGRESS';
+      }
+
+      const buildStatusUrl = `${executableUrl.replace(/\/+$/, '')}/api/json`;
+      const buildResponse = await api.fetch(buildStatusUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Basic ${this.apiToken}`,
+        },
+      });
+
+      if (!buildResponse.ok) {
+        throw new CIProviderError(
+          'Jenkins',
+          `Failed to fetch executable build status: ${buildResponse.status}`,
+          buildResponse.status,
+        );
+      }
+
+      const buildData = (await buildResponse.json()) as Record<string, unknown>;
+
+      // If the build is still running, result will be null.
+      if (buildData.building === true) {
+        return 'IN_PROGRESS';
+      }
+
+      return typeof buildData.result === 'string' ? buildData.result : 'IN_PROGRESS';
     } catch (error) {
       if (error instanceof CIProviderError) {
         throw error;

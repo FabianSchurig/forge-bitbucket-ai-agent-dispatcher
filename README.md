@@ -93,9 +93,9 @@ forge install --non-interactive --site bitbucket.org/fabian-schurig --product bi
 
 ---
 
-## Configuration (Workspace Settings)
+## Configuration (Project Settings)
 
-After installation, navigate to your Bitbucket workspace → **Settings → AI Agent Dispatcher Settings** to configure:
+After installation, navigate to your Bitbucket **Project → Settings → AI Agent Dispatcher Settings** to configure. Configuration is scoped to the Bitbucket project — all repositories within the project inherit the same CI/CD settings. Bitbucket natively restricts this page to Project Admins via RBAC.
 
 ### General Settings
 
@@ -210,9 +210,9 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 
 | Domain | Justification |
 |--------|---------------|
-| `*.jenkins.io` | Default wildcard for Jenkins instances. Admins must update `manifest.yml` with their actual Jenkins domain. |
+| `jenkins.mycompany.com` | Example Jenkins hostname. Admins must update `manifest.yml` with their actual Jenkins server domain. Avoid wildcard domains unless strictly necessary. |
 
-> **Important:** Forge blocks all outbound HTTP requests to domains not declared in `manifest.yml`. If using Jenkins, replace `*.jenkins.io` with your actual Jenkins server domain (e.g. `jenkins.mycompany.com`).
+> **Important:** Forge blocks all outbound HTTP requests to domains not declared in `manifest.yml`. If using Jenkins, set this to your actual Jenkins server domain (for example, `jenkins.mycompany.com`) and avoid wildcards unless they are strictly required.
 
 ---
 
@@ -231,10 +231,11 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 └── src/
     ├── index.ts              Entry point – re-exports all Forge handler functions
     ├── types.ts              Shared TypeScript interfaces and defaults
-    ├── storage.ts            Forge Storage read/write helpers
+    ├── storage.ts            Project-scoped Forge Storage read/write helpers
+    ├── pipelinePayload.ts    Shared Bitbucket Pipelines payload builder
     ├── dispatcher.ts         PR comment trigger handler and Bitbucket API helpers
     ├── resolvers.ts          Forge resolver for settings + startDeployment
-    ├── settings.tsx          Workspace settings UI (Forge UI Kit 2)
+    ├── settings.tsx          Project settings UI (Forge UI Kit 2)
     ├── interfaces/           CIProvider contract and CIProviderError
     │   ├── CIProvider.ts     Strategy Pattern interface
     │   ├── CIProviderError.ts Standardised error class for all providers

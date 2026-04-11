@@ -7,12 +7,20 @@ import type { BuildPayload, BuildResult } from './interfaces/CIProvider';
 
 const resolver = new Resolver();
 
-resolver.define('getSettings', async (): Promise<AppConfig> => {
-  return await getSettings();
+/**
+ * Returns the current configuration for the given project.
+ * The UI passes the project UUID from the Forge extension context.
+ */
+resolver.define('getSettings', async ({ payload }: { payload: { projectUuid?: string } }): Promise<AppConfig> => {
+  return await getSettings(payload?.projectUuid);
 });
 
-resolver.define('saveSettings', async ({ payload }: { payload: AppConfig }) => {
-  await saveSettings(payload);
+/**
+ * Saves configuration scoped to the given project.
+ * The UI passes the project UUID from the Forge extension context.
+ */
+resolver.define('saveSettings', async ({ payload }: { payload: { config: AppConfig; projectUuid?: string } }) => {
+  await saveSettings(payload.config, payload.projectUuid);
   return { success: true };
 });
 
@@ -32,10 +40,13 @@ resolver.define('startDeployment', async ({ payload }: {
     prId: number;
     commentText: string;
     commentAuthor: string;
+    commentId: number;
+    projectUuid?: string;
+    repoUuid?: string;
   };
 }): Promise<BuildResult> => {
   try {
-    const ciProvider = await ProviderFactory.getProvider();
+    const ciProvider = await ProviderFactory.getProvider(payload.projectUuid, payload.repoUuid);
 
     const buildPayload: BuildPayload = {
       branch: payload.branch,
@@ -44,20 +55,22 @@ resolver.define('startDeployment', async ({ payload }: {
       prId: payload.prId,
       commentText: payload.commentText,
       commentAuthor: payload.commentAuthor,
+      commentId: payload.commentId,
     };
 
     // Build a minimal DispatchContext for the provider.
     // This is used by providers that need the full context (e.g. Bitbucket Pipelines).
     const context: DispatchContext = {
       workspaceUuid: '',
-      repoUuid: '',
+      repoUuid: payload.repoUuid ?? '',
+      projectUuid: payload.projectUuid ?? '',
       workspace: payload.workspace,
       repoSlug: payload.repoSlug,
       prId: payload.prId,
       sourceBranch: payload.branch,
       commentText: payload.commentText,
       commentAuthor: payload.commentAuthor,
-      commentId: 0,
+      commentId: payload.commentId,
     };
 
     return await ciProvider.triggerBuild(buildPayload, context);

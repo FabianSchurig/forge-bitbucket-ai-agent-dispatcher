@@ -5,7 +5,7 @@ modules:
       events:
         - avi:bitbucket:created:pullrequest-comment
 
-  bitbucket:workspaceSettingsMenuPage:
+  bitbucket:projectSettingsMenuPage:
     - key: settings-page
       resource: settings-ui
       render: native
@@ -40,10 +40,8 @@ permissions:
   external:
     fetch:
       backend:
-        # Jenkins instances — workspace admins must add their Jenkins URL(s) here.
+        # Jenkins instances — workspace admins must add their Jenkins host(s) here.
         # Forge blocks outbound requests to any domain not explicitly listed.
-        # Wildcard example (allow any subdomain of a corporate domain):
-        #   - '*.example-corp.com'
-        # Specific instance example:
+        # Leave this list empty by default and add only exact hostnames as needed.
+        # Example:
         #   - 'jenkins.example.com'
-        - '*.jenkins.io'

@@ -5,15 +5,15 @@
  * This provider triggers a custom pipeline in a "hub" repository via the
  * Bitbucket REST API, using Forge's built-in app authentication.
  *
- * It encapsulates the existing triggerPipeline + buildPipelinePayload logic
- * that was previously inlined in the dispatcher, so the dispatcher no longer
- * needs to know anything about the Bitbucket Pipelines API shape.
+ * Pipeline payload construction is delegated to the shared
+ * buildPipelinePayload() helper in dispatcher.ts to avoid duplication.
  */
 
 import api, { route } from '@forge/api';
 import type { CIProvider, BuildPayload, BuildResult } from '../interfaces/CIProvider';
 import { CIProviderError } from '../interfaces/CIProviderError';
-import type { AppConfig, DispatchContext, PipelinePayload } from '../types';
+import type { AppConfig, DispatchContext } from '../types';
+import { buildPipelinePayload } from '../pipelinePayload';
 
 export class BitbucketPipelinesProvider implements CIProvider {
   private readonly config: AppConfig;
@@ -31,7 +31,9 @@ export class BitbucketPipelinesProvider implements CIProvider {
     // when the admin left hubWorkspace blank.
     const hubWorkspace = this.config.hubWorkspace || payload.workspace;
 
-    const pipelinePayload = this.buildPipelinePayload(context);
+    // Reuse the shared pipeline payload builder to avoid drift between
+    // this provider and the legacy triggerPipeline() helper.
+    const pipelinePayload = buildPipelinePayload(context, this.config);
 
     try {
       const response = await api
@@ -75,7 +77,18 @@ export class BitbucketPipelinesProvider implements CIProvider {
   // -----------------------------------------------------------------------
 
   async getBuildStatus(buildId: string): Promise<string> {
-    const hubWorkspace = this.config.hubWorkspace || '';
+    // hubWorkspace must be explicitly configured to poll build status.
+    // When left blank in the config, there is no reliable workspace slug
+    // available (we don't have the spoke payload at status-check time).
+    const hubWorkspace = this.config.hubWorkspace;
+    if (!hubWorkspace) {
+      throw new CIProviderError(
+        'Bitbucket Pipelines',
+        'Hub workspace must be configured to poll build status. ' +
+        'Please set the hub workspace slug in the project settings.',
+      );
+    }
+
     const response = await api
       .asApp()
       .requestBitbucket(
@@ -93,34 +106,5 @@ export class BitbucketPipelinesProvider implements CIProvider {
     const data = (await response.json()) as Record<string, unknown>;
     const state = data?.state as Record<string, unknown> | undefined;
     return (state?.name as string) ?? 'UNKNOWN';
-  }
-
-  // -----------------------------------------------------------------------
-  // Internal helper: builds the Bitbucket Pipelines API JSON body.
-  // -----------------------------------------------------------------------
-
-  private buildPipelinePayload(context: DispatchContext): PipelinePayload {
-    // Strip the "custom: " prefix so we only pass the pipeline pattern name.
-    const pipelineName = this.config.hubPipeline.replace(/^custom:\s*/i, '');
-
-    return {
-      target: {
-        type: 'pipeline_ref_target',
-        ref_type: 'branch',
-        ref_name: this.config.pipelineBranch,
-        selector: {
-          type: 'custom',
-          pattern: pipelineName,
-        },
-      },
-      variables: [
-        { key: 'SOURCE_WORKSPACE', value: context.workspace },
-        { key: 'SOURCE_REPO', value: context.repoSlug },
-        { key: 'PR_ID', value: String(context.prId) },
-        { key: 'SOURCE_BRANCH', value: context.sourceBranch },
-        { key: 'COMMENT_TEXT', value: context.commentText },
-        { key: 'COMMENT_AUTHOR', value: context.commentAuthor },
-      ],
-    };
   }
 }

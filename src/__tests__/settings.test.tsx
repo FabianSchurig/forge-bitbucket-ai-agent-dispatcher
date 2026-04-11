@@ -9,12 +9,16 @@ import { DEFAULT_CONFIG } from '../types';
 
 jest.mock('@forge/bridge', () => ({
   invoke: jest.fn(),
+  view: {
+    getContext: jest.fn(),
+  },
 }));
 
 // Retrieve a stable reference after the mock factory has run.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const bridgeMock = jest.requireMock('@forge/bridge') as any;
 const mockInvoke: jest.Mock = bridgeMock.invoke;
+const mockGetContext: jest.Mock = bridgeMock.view.getContext;
 
 // ---------------------------------------------------------------------------
 // Mock @forge/react (UI Kit components → render as plain HTML)
@@ -113,6 +117,13 @@ jest.mock('@forge/react', () => {
 describe('SettingsForm', () => {
   beforeEach(() => {
     mockInvoke.mockReset();
+    mockGetContext.mockReset();
+    // Default: view.getContext resolves with a project context.
+    mockGetContext.mockResolvedValue({
+      extension: {
+        project: { uuid: '{proj-uuid-test}' },
+      },
+    });
   });
 
   it('shows a loading indicator while fetching settings', () => {
@@ -165,7 +176,7 @@ describe('SettingsForm', () => {
   });
 
   it('displays an error message when loading fails', async () => {
-    mockInvoke.mockRejectedValue(new Error('Network error'));
+    mockGetContext.mockRejectedValue(new Error('Context error'));
 
     render(<SettingsForm />);
 
@@ -174,13 +185,13 @@ describe('SettingsForm', () => {
     });
   });
 
-  it('calls invoke("getSettings") on mount', async () => {
+  it('passes project UUID to the getSettings resolver', async () => {
     mockInvoke.mockResolvedValue(DEFAULT_CONFIG);
 
     render(<SettingsForm />);
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('getSettings');
+      expect(mockInvoke).toHaveBeenCalledWith('getSettings', { projectUuid: '{proj-uuid-test}' });
     });
   });
 
@@ -200,6 +211,31 @@ describe('SettingsForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/saved successfully/i)).toBeInTheDocument();
+    });
+  });
+
+  it('passes project UUID to the saveSettings resolver', async () => {
+    mockInvoke
+      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+
+    const { container } = render(<SettingsForm />);
+
+    await waitFor(() => screen.getByDisplayValue(DEFAULT_CONFIG.triggerKeyword));
+
+    await act(async () => {
+      const form = container.querySelector('form')!;
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() => {
+      // The second invoke call should include projectUuid and config.
+      const saveCall = mockInvoke.mock.calls.find(
+        (call: unknown[]) => call[0] === 'saveSettings',
+      );
+      expect(saveCall).toBeDefined();
+      expect(saveCall![1]).toHaveProperty('projectUuid', '{proj-uuid-test}');
+      expect(saveCall![1]).toHaveProperty('config');
     });
   });
 

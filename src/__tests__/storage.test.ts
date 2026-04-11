@@ -20,10 +20,10 @@ const mockStorageGet: jest.Mock = kvsM.default.get;
 const mockStorageSet: jest.Mock = kvsM.default.set;
 
 // ---------------------------------------------------------------------------
-// getSettings
+// getSettings — legacy (no projectUuid)
 // ---------------------------------------------------------------------------
 
-describe('getSettings', () => {
+describe('getSettings (legacy global key)', () => {
   beforeEach(() => {
     mockStorageGet.mockReset();
     mockStorageSet.mockReset();
@@ -51,7 +51,7 @@ describe('getSettings', () => {
     expect(config.pipelineBranch).toBe(DEFAULT_CONFIG.pipelineBranch);
   });
 
-  it('reads from the correct storage key', async () => {
+  it('reads from the legacy storage key when no project UUID', async () => {
     mockStorageGet.mockResolvedValue(undefined);
 
     await getSettings();
@@ -71,10 +71,87 @@ describe('getSettings', () => {
 });
 
 // ---------------------------------------------------------------------------
-// saveSettings
+// getSettings — project-scoped
 // ---------------------------------------------------------------------------
 
-describe('saveSettings', () => {
+describe('getSettings (project-scoped)', () => {
+  beforeEach(() => {
+    mockStorageGet.mockReset();
+    mockStorageSet.mockReset();
+  });
+
+  it('reads from the project-scoped key when projectUuid is provided', async () => {
+    mockStorageGet.mockResolvedValue(undefined);
+
+    await getSettings('{proj-uuid}');
+
+    // Should try project-scoped key then fall back to legacy
+    expect(mockStorageGet).toHaveBeenCalledWith('dispatch-config-{proj-uuid}');
+    expect(mockStorageGet).toHaveBeenCalledWith('appConfig');
+  });
+
+  it('returns project-scoped config when it exists', async () => {
+    mockStorageGet.mockImplementation(async (key: string) => {
+      if (key === 'dispatch-config-{proj-uuid}') {
+        return { triggerKeyword: '!project-bot', hubRepository: 'project-hub' };
+      }
+      return undefined;
+    });
+
+    const config = await getSettings('{proj-uuid}');
+
+    expect(config.triggerKeyword).toBe('!project-bot');
+    expect(config.hubRepository).toBe('project-hub');
+  });
+
+  it('falls back to legacy key when project-scoped config is empty', async () => {
+    mockStorageGet.mockImplementation(async (key: string) => {
+      if (key === 'appConfig') {
+        return { triggerKeyword: '!legacy' };
+      }
+      return undefined;
+    });
+
+    const config = await getSettings('{proj-uuid}');
+
+    expect(config.triggerKeyword).toBe('!legacy');
+  });
+
+  it('prefers repo-level override over project-level config', async () => {
+    mockStorageGet.mockImplementation(async (key: string) => {
+      if (key === 'dispatch-config-repo-{repo-uuid}') {
+        return { triggerKeyword: '!repo-override' };
+      }
+      if (key === 'dispatch-config-{proj-uuid}') {
+        return { triggerKeyword: '!project-config' };
+      }
+      return undefined;
+    });
+
+    const config = await getSettings('{proj-uuid}', '{repo-uuid}');
+
+    expect(config.triggerKeyword).toBe('!repo-override');
+  });
+
+  it('falls back to project config when repo-level is empty', async () => {
+    mockStorageGet.mockImplementation(async (key: string) => {
+      if (key === 'dispatch-config-{proj-uuid}') {
+        return { triggerKeyword: '!project-config' };
+      }
+      return undefined;
+    });
+
+    const config = await getSettings('{proj-uuid}', '{repo-uuid}');
+
+    expect(config.triggerKeyword).toBe('!project-config');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveSettings — legacy (no projectUuid)
+// ---------------------------------------------------------------------------
+
+describe('saveSettings (legacy global key)', () => {
   beforeEach(() => {
     mockStorageGet.mockReset();
     mockStorageSet.mockReset();
@@ -82,7 +159,7 @@ describe('saveSettings', () => {
     mockStorageSet.mockResolvedValue(undefined);
   });
 
-  it('writes the merged config to storage', async () => {
+  it('writes the merged config to legacy storage key', async () => {
     await saveSettings({ triggerKeyword: '!ai', hubRepository: 'my-hub' });
 
     expect(mockStorageSet).toHaveBeenCalledWith('appConfig', {
@@ -126,10 +203,47 @@ describe('saveSettings', () => {
     expect(mockStorageSet).toHaveBeenCalledWith('appConfig', newConfig);
   });
 
-  it('writes to the correct storage key', async () => {
+  it('writes to the legacy storage key when no projectUuid', async () => {
     await saveSettings({});
 
     const [key] = mockStorageSet.mock.calls[0] as [string, unknown];
     expect(key).toBe('appConfig');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveSettings — project-scoped
+// ---------------------------------------------------------------------------
+
+describe('saveSettings (project-scoped)', () => {
+  beforeEach(() => {
+    mockStorageGet.mockReset();
+    mockStorageSet.mockReset();
+    mockStorageGet.mockResolvedValue(undefined);
+    mockStorageSet.mockResolvedValue(undefined);
+  });
+
+  it('writes to the project-scoped key when projectUuid is provided', async () => {
+    await saveSettings({ triggerKeyword: '!project' }, '{proj-uuid}');
+
+    const [key] = mockStorageSet.mock.calls[0] as [string, unknown];
+    expect(key).toBe('dispatch-config-{proj-uuid}');
+  });
+
+  it('merges partial updates into project-scoped config', async () => {
+    mockStorageGet.mockImplementation(async (key: string) => {
+      if (key === 'dispatch-config-{proj-uuid}') {
+        return { ...DEFAULT_CONFIG, triggerKeyword: '!existing' };
+      }
+      return undefined;
+    });
+
+    await saveSettings({ hubRepository: 'new-hub' }, '{proj-uuid}');
+
+    expect(mockStorageSet).toHaveBeenCalledWith('dispatch-config-{proj-uuid}', {
+      ...DEFAULT_CONFIG,
+      triggerKeyword: '!existing',
+      hubRepository: 'new-hub',
+    });
   });
 });

@@ -43,6 +43,10 @@ export interface BuildPayload {
   commentText: string;
   /** Atlassian account ID of the user who triggered the build. */
   commentAuthor: string;
+  /** ID of the triggering comment (used by providers that avoid sending
+   *  large text in URLs — e.g. Jenkins passes only the ID so the CI job
+   *  can fetch comment content server-side). */
+  commentId: number;
 }
 
 /**

@@ -8,6 +8,10 @@ import type {
   PipelinePayload,
 } from './types';
 import type { BuildPayload } from './interfaces/CIProvider';
+import { buildPipelinePayload } from './pipelinePayload';
+
+// Re-export the shared helper so existing tests and callers keep working.
+export { buildPipelinePayload } from './pipelinePayload';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (easily unit-tested without mocking Forge APIs)
@@ -36,6 +40,12 @@ export function extractTriggerContext(event: Record<string, unknown>): DispatchC
   const commentId = (comment?.id as number) ?? 0;
   const commentAuthor = (actor?.accountId as string) ?? (actor?.uuid as string) ?? 'unknown';
 
+  // Extract the project UUID from the repository object.
+  // Bitbucket associates repositories with projects; the event payload
+  // includes the project context under repository.project.uuid.
+  const project = repository?.project as Record<string, unknown> | undefined;
+  const projectUuid = (project?.uuid as string) ?? '';
+
   // The Forge event includes source branch info directly on the pullrequest.
   // The branch field can be either a plain string or an object { name: "…" }
   // depending on the Bitbucket API version, so we handle both shapes.
@@ -53,6 +63,7 @@ export function extractTriggerContext(event: Record<string, unknown>): DispatchC
   return {
     workspaceUuid,
     repoUuid,
+    projectUuid,
     workspace: '',      // populated via fetchRepositoryDetails
     repoSlug: '',       // populated via fetchRepositoryDetails
     prId,
@@ -60,37 +71,6 @@ export function extractTriggerContext(event: Record<string, unknown>): DispatchC
     commentText: '',    // populated via fetchCommentContent
     commentAuthor,
     commentId,
-  };
-}
-
-/**
- * Builds the JSON payload for the Bitbucket Pipelines API.
- */
-export function buildPipelinePayload(
-  context: DispatchContext,
-  config: AppConfig,
-): PipelinePayload {
-  // Strip the "custom: " prefix so we only pass the pipeline pattern name.
-  const pipelineName = config.hubPipeline.replace(/^custom:\s*/i, '');
-
-  return {
-    target: {
-      type: 'pipeline_ref_target',
-      ref_type: 'branch',
-      ref_name: config.pipelineBranch,
-      selector: {
-        type: 'custom',
-        pattern: pipelineName,
-      },
-    },
-    variables: [
-      { key: 'SOURCE_WORKSPACE', value: context.workspace },
-      { key: 'SOURCE_REPO', value: context.repoSlug },
-      { key: 'PR_ID', value: String(context.prId) },
-      { key: 'SOURCE_BRANCH', value: context.sourceBranch },
-      { key: 'COMMENT_TEXT', value: context.commentText },
-      { key: 'COMMENT_AUTHOR', value: context.commentAuthor },
-    ],
   };
 }
 
@@ -231,7 +211,9 @@ export async function postFailureComment(
  *
  * The dispatcher is completely decoupled from the CI backend — it delegates
  * to the ProviderFactory which returns the correct CIProvider implementation
- * based on the workspace configuration.
+ * based on the project-scoped configuration.
+ *
+ * Configuration is resolved in order: repo override → project → legacy global.
  */
 export async function runDispatcher(event: Record<string, unknown>): Promise<void> {
   // Log only safe, non-sensitive identifiers — never the full event payload.
@@ -253,7 +235,8 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
 
   console.log(
     `Dispatcher: PR #${context.prId}, comment #${context.commentId} ` +
-    `(workspace=${context.workspaceUuid}, repo=${context.repoUuid}).`,
+    `(workspace=${context.workspaceUuid}, repo=${context.repoUuid}, ` +
+    `project=${context.projectUuid || 'none'}).`,
   );
 
   try {
@@ -266,7 +249,8 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     );
     context.commentText = commentText;
 
-    const config = await getSettings();
+    // Use project-scoped config with optional repo-level override.
+    const config = await getSettings(context.projectUuid, context.repoUuid);
 
     if (!context.commentText.includes(config.triggerKeyword)) {
       console.log(
@@ -295,11 +279,13 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
       prId: context.prId,
       commentText: context.commentText,
       commentAuthor: context.commentAuthor,
+      commentId: context.commentId,
     };
 
     // Use the ProviderFactory to get the configured CI provider (Strategy Pattern).
     // The dispatcher does not know or care whether this is Jenkins, Pipelines, etc.
-    const ciProvider = await ProviderFactory.getProvider();
+    // Configuration is resolved: repo override → project → legacy global.
+    const ciProvider = await ProviderFactory.getProvider(context.projectUuid, context.repoUuid);
     const result = await ciProvider.triggerBuild(buildPayload, context);
 
     console.log(
