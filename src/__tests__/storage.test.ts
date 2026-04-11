@@ -112,10 +112,13 @@ describe('saveSettings', () => {
   it('persists a full config update', async () => {
     const newConfig = {
       triggerKeyword: '/agent',
+      ciType: 'BITBUCKET_PIPELINES' as const,
       hubWorkspace: 'central',
       hubRepository: 'hub-repo',
       hubPipeline: 'custom: run-ai',
       pipelineBranch: 'develop',
+      jenkinsUrl: '',
+      jenkinsJobPath: '',
     };
 
     await saveSettings(newConfig);

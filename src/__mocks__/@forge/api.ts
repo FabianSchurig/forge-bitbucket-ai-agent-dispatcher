@@ -2,7 +2,8 @@
  * Jest manual mock for @forge/api.
  *
  * Provides jest.fn() stubs for api.asApp().requestBitbucket(),
- * storage.get(), storage.set(), and the route template-literal tag.
+ * api.fetch(), storage.get(), storage.set(), storage.getSecret(),
+ * storage.setSecret(), and the route template-literal tag.
  *
  * Note: __esModule markers are handled by Jest at test time via the module
  * factory's __esModule property. They must NOT be exported as named exports
@@ -10,16 +11,20 @@
  */
 
 const mockRequestBitbucket = jest.fn();
+const mockFetch = jest.fn();
 
 const api = {
   asApp: jest.fn().mockReturnValue({
     requestBitbucket: mockRequestBitbucket,
   }),
+  fetch: mockFetch,
 };
 
 const storage = {
   get: jest.fn(),
   set: jest.fn(),
+  getSecret: jest.fn(),
+  setSecret: jest.fn(),
 };
 
 /**
@@ -35,4 +40,4 @@ function route(strings: TemplateStringsArray, ...values: unknown[]): string {
 }
 
 export default api;
-export { storage, route, mockRequestBitbucket };
+export { storage, route, mockRequestBitbucket, mockFetch };
