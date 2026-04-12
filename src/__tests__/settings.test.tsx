@@ -109,6 +109,29 @@ jest.mock('@forge/react', () => {
         value: value?.value ?? '',
         readOnly: true,
       }),
+    Toggle: ({
+      id,
+      isChecked,
+      onChange,
+    }: {
+      id?: string;
+      isChecked?: boolean;
+      onChange?: () => void;
+    }) =>
+      actual.createElement('input', {
+        id,
+        type: 'checkbox',
+        checked: isChecked ?? false,
+        onChange,
+        'data-testid': `toggle-${id}`,
+      }),
+    DynamicTable: ({ head, rows }: { head?: unknown; rows?: unknown[] }) =>
+      actual.createElement('table', {
+        'data-testid': 'monitoring-table',
+        'data-rows': rows ? rows.length : 0,
+      }),
+    Lozenge: ({ children }: { children?: React.ReactNode }) =>
+      actual.createElement('span', { 'data-testid': 'lozenge' }, children),
   };
 });
 
@@ -126,6 +149,14 @@ describe('SettingsForm', () => {
         project: { uuid: '{proj-uuid-test}' },
       },
     });
+    // Default invoke handler that returns appropriate values for each resolver call.
+    // getSettings returns the default config; getMonitoringEvents returns no events.
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve(DEFAULT_CONFIG);
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
   });
 
   it('shows a loading indicator while fetching settings', () => {
@@ -136,8 +167,7 @@ describe('SettingsForm', () => {
   });
 
   it('renders all five config fields after settings load', async () => {
-    mockInvoke.mockResolvedValue(DEFAULT_CONFIG);
-
+    // Default beforeEach provides the correct invoke responses.
     render(<SettingsForm />);
 
     await waitFor(() => {
@@ -155,11 +185,16 @@ describe('SettingsForm', () => {
   });
 
   it('shows Jenkins fields when ciType is JENKINS', async () => {
-    mockInvoke.mockResolvedValue({
+    const jenkinsConfig = {
       ...DEFAULT_CONFIG,
-      ciType: 'JENKINS',
+      ciType: 'JENKINS' as const,
       jenkinsUrl: 'https://jenkins.example.com',
       jenkinsJobPath: 'job/my-job',
+    };
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve(jenkinsConfig);
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
     });
 
     render(<SettingsForm />);
@@ -188,8 +223,7 @@ describe('SettingsForm', () => {
   });
 
   it('passes project UUID to the getSettings resolver', async () => {
-    mockInvoke.mockResolvedValue(DEFAULT_CONFIG);
-
+    // Default beforeEach provides the correct invoke responses.
     render(<SettingsForm />);
 
     await waitFor(() => {
@@ -197,10 +231,22 @@ describe('SettingsForm', () => {
     });
   });
 
+  it('passes project UUID to the getMonitoringEvents resolver', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('getMonitoringEvents', { projectUuid: '{proj-uuid-test}' });
+    });
+  });
+
   it('shows success message after a successful save', async () => {
-    mockInvoke
-      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
-      .mockResolvedValueOnce({ success: true }); // saveSettings
+    let saveResolved = false;
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve(DEFAULT_CONFIG);
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') { saveResolved = true; return Promise.resolve({ success: true }); }
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
 
@@ -214,12 +260,16 @@ describe('SettingsForm', () => {
     await waitFor(() => {
       expect(screen.getByText(/saved successfully/i)).toBeInTheDocument();
     });
+    expect(saveResolved).toBe(true);
   });
 
   it('passes project UUID to the saveSettings resolver', async () => {
-    mockInvoke
-      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
-      .mockResolvedValueOnce({ success: true }); // saveSettings
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve(DEFAULT_CONFIG);
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
 
@@ -231,7 +281,7 @@ describe('SettingsForm', () => {
     });
 
     await waitFor(() => {
-      // The second invoke call should include projectUuid and config.
+      // The save invoke call should include projectUuid and config.
       const saveCall = mockInvoke.mock.calls.find(
         (call: unknown[]) => call[0] === 'saveSettings',
       );
@@ -242,9 +292,12 @@ describe('SettingsForm', () => {
   });
 
   it('shows an error message when saveSettings fails', async () => {
-    mockInvoke
-      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
-      .mockRejectedValueOnce(new Error('Save failed')); // saveSettings
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve(DEFAULT_CONFIG);
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.reject(new Error('Save failed'));
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
 
@@ -266,11 +319,15 @@ describe('SettingsForm', () => {
 
   it('shows invalid URL error when Jenkins URL is malformed', async () => {
     // Arrange: Jenkins config with an invalid URL.
-    mockInvoke.mockResolvedValueOnce({
-      ...DEFAULT_CONFIG,
-      ciType: 'JENKINS',
-      jenkinsUrl: 'not-a-valid-url',
-    }); // getSettings
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
+        ...DEFAULT_CONFIG,
+        ciType: 'JENKINS',
+        jenkinsUrl: 'not-a-valid-url',
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
     await waitFor(() => screen.getByPlaceholderText('@agent'));
@@ -286,18 +343,25 @@ describe('SettingsForm', () => {
     await waitFor(() => {
       expect(screen.getByText(/invalid jenkins url format/i)).toBeInTheDocument();
     });
-    expect(mockInvoke).toHaveBeenCalledTimes(1); // only getSettings
+    // Only getSettings and getMonitoringEvents should have been called (no saveSettings).
+    const saveCalls = mockInvoke.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'saveSettings',
+    );
+    expect(saveCalls).toHaveLength(0);
   });
 
   it('saves Jenkins settings successfully when URL is valid', async () => {
     // Arrange: Jenkins config with a valid URL.
-    mockInvoke
-      .mockResolvedValueOnce({
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
         ...DEFAULT_CONFIG,
         ciType: 'JENKINS',
         jenkinsUrl: 'https://jenkins.mycompany.com',
-      }) // getSettings
-      .mockResolvedValueOnce({ success: true }); // saveSettings
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
     await waitFor(() => screen.getByPlaceholderText('@agent'));
@@ -321,13 +385,16 @@ describe('SettingsForm', () => {
 
   it('saves Jenkins settings without validation when URL is empty', async () => {
     // Arrange: Jenkins selected but no URL entered yet.
-    mockInvoke
-      .mockResolvedValueOnce({
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
         ...DEFAULT_CONFIG,
         ciType: 'JENKINS',
         jenkinsUrl: '',
-      }) // getSettings
-      .mockResolvedValueOnce({ success: true }); // saveSettings
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
 
     const { container } = render(<SettingsForm />);
     await waitFor(() => screen.getByPlaceholderText('@agent'));
@@ -341,5 +408,61 @@ describe('SettingsForm', () => {
 
     // Assert: settings saved without URL validation blocking.
     await waitFor(() => expect(screen.getByText(/saved successfully/i)).toBeInTheDocument());
+  });
+
+  // ---------------------------------------------------------------------------
+  // Monitoring section tests
+  // ---------------------------------------------------------------------------
+
+  it('renders the monitoring toggle', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('toggle-monitoringEnabled')).toBeInTheDocument();
+  });
+
+  it('shows monitoring table when monitoring is enabled and events exist', async () => {
+    const events = [
+      {
+        timestamp: '2026-04-12T14:00:00.000Z',
+        projectUuid: '{proj-uuid-test}',
+        workspaceUuid: '{ws-uuid}',
+        repoUuid: '{repo-uuid}',
+        prId: 7,
+        commentId: 42,
+        status: 'SUCCESS',
+        provider: 'BITBUCKET_PIPELINES',
+        message: 'Pipeline triggered.',
+      },
+    ];
+
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({ ...DEFAULT_CONFIG, monitoringEnabled: true });
+      if (key === 'getMonitoringEvents') return Promise.resolve(events);
+      return Promise.resolve(undefined);
+    });
+
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('monitoring-table')).toBeInTheDocument();
+    });
+  });
+
+  it('shows empty-state message when monitoring is enabled but no events exist', async () => {
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({ ...DEFAULT_CONFIG, monitoringEnabled: true });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/no dispatch events have been recorded/i)).toBeInTheDocument();
+    });
   });
 });

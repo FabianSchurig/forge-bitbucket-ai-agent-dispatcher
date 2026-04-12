@@ -197,6 +197,7 @@ describe('saveSettings (legacy global key)', () => {
       pipelineBranch: 'develop',
       jenkinsUrl: '',
       jenkinsJobPath: '',
+      monitoringEnabled: false,
     };
 
     await saveSettings(newConfig);

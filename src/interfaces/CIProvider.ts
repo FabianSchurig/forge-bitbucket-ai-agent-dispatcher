@@ -61,6 +61,8 @@ export interface BuildResult {
   message: string;
   /** Optional provider-specific build identifier for later status checks. */
   buildId?: string;
+  /** Optional URL to the triggered build (used for user-facing feedback comments). */
+  buildUrl?: string;
 }
 
 // ---------------------------------------------------------------------------

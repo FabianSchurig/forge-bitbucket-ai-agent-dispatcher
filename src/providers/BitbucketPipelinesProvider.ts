@@ -56,9 +56,25 @@ export class BitbucketPipelinesProvider implements CIProvider {
         );
       }
 
+      // Parse the response to extract the pipeline UUID and build number.
+      // The Bitbucket Pipelines API returns a JSON body that includes the
+      // pipeline UUID (uuid) and build_number, which we use to construct
+      // a direct link so the user can navigate to the pipeline run.
+      const data = (await response.json()) as Record<string, unknown>;
+      const pipelineUuid = (data?.uuid as string) ?? '';
+      const buildNumber = data?.build_number as number | undefined;
+
+      // Construct the user-visible URL for the pipeline run.
+      // Format: https://bitbucket.org/{workspace}/{repo}/pipelines/results/{buildNumber}
+      const buildUrl = buildNumber
+        ? `https://bitbucket.org/${hubWorkspace}/${this.config.hubRepository}/pipelines/results/${buildNumber}`
+        : undefined;
+
       return {
         success: true,
         message: `Pipeline triggered in ${hubWorkspace}/${this.config.hubRepository}.`,
+        buildId: pipelineUuid || undefined,
+        buildUrl,
       };
     } catch (error) {
       // Re-throw CIProviderError instances as-is; wrap unexpected errors.

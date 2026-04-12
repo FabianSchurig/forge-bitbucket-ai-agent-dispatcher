@@ -104,10 +104,16 @@ export class JenkinsProvider implements CIProvider {
       const location = response.headers.get('Location') ?? '';
       const queueId = location.match(/\/queue\/item\/(\d+)/)?.[1] ?? '';
 
+      // Construct a user-visible URL for the Jenkins build.
+      // At trigger-time we only have the queue item, not the final build URL.
+      // We link to the job page which is the best stable reference.
+      const buildUrl = `${this.jenkinsUrl}/${this.jenkinsJobPath}`;
+
       return {
         success: true,
         message: `Jenkins build triggered for ${payload.repoName}.`,
         buildId: queueId || undefined,
+        buildUrl,
       };
     } catch (error) {
       if (error instanceof CIProviderError) {

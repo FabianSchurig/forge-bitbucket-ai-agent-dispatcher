@@ -79,10 +79,11 @@ describe('BitbucketPipelinesProvider', () => {
   // -- triggerBuild --------------------------------------------------------
 
   describe('triggerBuild', () => {
-    it('triggers a pipeline and returns a success result', async () => {
+    it('triggers a pipeline and returns a success result with build URL', async () => {
       mockRequestBitbucket.mockResolvedValue({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 42 }),
         text: async () => '',
       });
 
@@ -91,6 +92,10 @@ describe('BitbucketPipelinesProvider', () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain('Pipeline triggered');
+      expect(result.buildId).toBe('{pipeline-uuid}');
+      expect(result.buildUrl).toBe(
+        'https://bitbucket.org/my-workspace/ai-agent-hub/pipelines/results/42',
+      );
       expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
     });
 
@@ -98,6 +103,7 @@ describe('BitbucketPipelinesProvider', () => {
       mockRequestBitbucket.mockResolvedValue({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{uuid}', build_number: 1 }),
         text: async () => '',
       });
 
@@ -113,6 +119,7 @@ describe('BitbucketPipelinesProvider', () => {
       mockRequestBitbucket.mockResolvedValue({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{uuid}', build_number: 1 }),
         text: async () => '',
       });
 
@@ -131,6 +138,7 @@ describe('BitbucketPipelinesProvider', () => {
       mockRequestBitbucket.mockResolvedValue({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{uuid}', build_number: 1 }),
         text: async () => '',
       });
 
@@ -147,6 +155,7 @@ describe('BitbucketPipelinesProvider', () => {
       mockRequestBitbucket.mockResolvedValue({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{uuid}', build_number: 1 }),
         text: async () => '',
       });
 
@@ -181,6 +190,22 @@ describe('BitbucketPipelinesProvider', () => {
       await expect(
         provider.triggerBuild(makePayload(), makeContext()),
       ).rejects.toThrow(CIProviderError);
+    });
+
+    it('returns undefined buildUrl when build_number is missing from response', async () => {
+      mockRequestBitbucket.mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}' }),
+        text: async () => '',
+      });
+
+      const provider = new BitbucketPipelinesProvider(makeConfig());
+      const result = await provider.triggerBuild(makePayload(), makeContext());
+
+      expect(result.success).toBe(true);
+      expect(result.buildUrl).toBeUndefined();
+      expect(result.buildId).toBe('{pipeline-uuid}');
     });
 
     it('includes the HTTP status in the CIProviderError', async () => {

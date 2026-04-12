@@ -40,6 +40,14 @@ export interface AppConfig {
    * Only used when ciType is 'JENKINS'.
    */
   jenkinsJobPath: string;
+
+  // -- Monitoring -----------------------------------------------------------
+
+  /**
+   * When true, the dispatcher records each dispatch event (success, failure,
+   * skipped) in Forge Storage for later review in the settings UI.
+   */
+  monitoringEnabled: boolean;
 }
 
 /** Default configuration values. */
@@ -52,7 +60,46 @@ export const DEFAULT_CONFIG: AppConfig = {
   pipelineBranch: 'main',
   jenkinsUrl: '',
   jenkinsJobPath: '',
+  monitoringEnabled: false,
 };
+
+// ---------------------------------------------------------------------------
+// Monitoring types
+// ---------------------------------------------------------------------------
+
+/** Possible outcomes for a dispatch event. */
+export type DispatchStatus = 'SUCCESS' | 'FAILURE' | 'SKIPPED';
+
+/**
+ * A single monitoring event recorded when the dispatcher processes
+ * (or skips) a PR comment.
+ */
+export interface DispatchEvent {
+  /** ISO 8601 timestamp of the event. */
+  timestamp: string;
+  /**
+   * Bitbucket project UUID that this event belongs to.
+   * Events are scoped by project so the settings UI only shows events
+   * relevant to the current project context.
+   */
+  projectUuid: string;
+  /** Workspace UUID where the event originated. */
+  workspaceUuid: string;
+  /** Repository UUID where the event originated. */
+  repoUuid: string;
+  /** Pull-request ID. */
+  prId: number;
+  /** Comment ID that triggered (or was evaluated by) the dispatcher. */
+  commentId: number;
+  /** Outcome of the dispatch attempt. */
+  status: DispatchStatus;
+  /** CI provider that handled the build (empty for SKIPPED events). */
+  provider: string;
+  /** Human-readable description of what happened. */
+  message: string;
+  /** Optional URL to the triggered build. */
+  buildUrl?: string;
+}
 
 /** Context extracted from a pull-request comment event. */
 export interface DispatchContext {

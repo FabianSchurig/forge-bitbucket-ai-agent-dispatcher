@@ -22,12 +22,15 @@ const makeStub = (name: string) => {
 };
 
 export const Button = makeStub('Button');
+export const DynamicTable = makeStub('DynamicTable');
 export const Form = makeStub('Form');
 export const FormSection = makeStub('FormSection');
 export const Heading = makeStub('Heading');
 export const Label = makeStub('Label');
+export const Lozenge = makeStub('Lozenge');
 export const SectionMessage = makeStub('SectionMessage');
 export const Stack = makeStub('Stack');
 export const Text = makeStub('Text');
 export const Textfield = makeStub('Textfield');
 export const Select = makeStub('Select');
+export const Toggle = makeStub('Toggle');

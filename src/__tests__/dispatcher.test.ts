@@ -5,6 +5,7 @@ import {
   fetchCommentContent,
   triggerPipeline,
   postFailureComment,
+  postSuccessComment,
   runDispatcher,
 } from '../dispatcher';
 import { DEFAULT_CONFIG } from '../types';
@@ -19,7 +20,17 @@ jest.mock('@forge/kvs', () => ({
   default: {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Mock monitoring module (so dispatcher tests don't hit real storage)
+// ---------------------------------------------------------------------------
+
+jest.mock('../monitoring', () => ({
+  __esModule: true,
+  recordDispatchEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ---------------------------------------------------------------------------
@@ -434,7 +445,7 @@ describe('runDispatcher', () => {
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
   });
 
-  it('fetches comment, repo details, and triggers the pipeline when keyword is present', async () => {
+  it('fetches comment, repo details, triggers the pipeline, and posts a success comment when keyword is present', async () => {
     mockRequestBitbucket
       // 1st call: fetchCommentContent
       .mockResolvedValueOnce({
@@ -448,15 +459,22 @@ describe('runDispatcher', () => {
         json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
-      // 3rd call: triggerPipeline
+      // 3rd call: triggerPipeline (returns pipeline data for build URL)
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 42 }),
+        text: async () => '',
+      })
+      // 4th call: postSuccessComment
+      .mockResolvedValueOnce({
+        ok: true,
         text: async () => '',
       });
 
     await runDispatcher(makeEvent());
-    expect(mockRequestBitbucket).toHaveBeenCalledTimes(3);
+    // 4 calls: comment fetch, repo details, pipeline trigger, success comment.
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(4);
   });
 
   it('posts a failure comment when triggerPipeline throws', async () => {
@@ -486,7 +504,7 @@ describe('runDispatcher', () => {
       });
 
     await runDispatcher(makeEvent());
-    // All four Bitbucket calls should have been made.
+    // 4 calls: comment fetch, repo details, pipeline trigger (fails), failure comment.
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(4);
   });
 
@@ -502,7 +520,14 @@ describe('runDispatcher', () => {
         json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
-      .mockResolvedValueOnce({ ok: true, status: 201, text: async () => '' });
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 1 }),
+        text: async () => '',
+      })
+      // postSuccessComment
+      .mockResolvedValueOnce({ ok: true, text: async () => '' });
 
     await runDispatcher(makeEvent());
 
@@ -531,11 +556,262 @@ describe('runDispatcher', () => {
         json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
         text: async () => '',
       })
-      .mockResolvedValueOnce({ ok: true, status: 201, text: async () => '' });
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 5 }),
+        text: async () => '',
+      })
+      // postSuccessComment
+      .mockResolvedValueOnce({ ok: true, text: async () => '' });
 
     await runDispatcher(makeEvent());
 
     const triggerCallUrl = mockRequestBitbucket.mock.calls[2][0] as string;
     expect(triggerCallUrl).toContain('central-workspace');
+  });
+
+  it('posts a success comment with build URL after successful trigger', async () => {
+    mockRequestBitbucket
+      // fetchCommentContent
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      // fetchRepositoryDetails
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
+        text: async () => '',
+      })
+      // triggerPipeline (returns build URL data)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 99 }),
+        text: async () => '',
+      })
+      // postSuccessComment
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => '',
+      });
+
+    await runDispatcher(makeEvent());
+
+    // 4th call should be postSuccessComment.
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(4);
+    const successCommentBody = JSON.parse(
+      mockRequestBitbucket.mock.calls[3][1].body as string,
+    );
+    expect(successCommentBody.content.raw).toContain('Agent build started');
+    expect(successCommentBody.content.raw).toContain('pipelines/results/99');
+    expect(successCommentBody.parent).toEqual({ id: 42 });
+  });
+
+  it('records a monitoring event when monitoringEnabled is true', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kvsMock = jest.requireMock('@forge/kvs') as any;
+    (kvsMock.default.get as jest.Mock).mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      monitoringEnabled: true,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitoringMock = jest.requireMock('../monitoring') as any;
+    (monitoringMock.recordDispatchEvent as jest.Mock).mockReset();
+
+    mockRequestBitbucket
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 10 }),
+        text: async () => '',
+      })
+      // postSuccessComment
+      .mockResolvedValueOnce({ ok: true, text: async () => '' });
+
+    await runDispatcher(makeEvent());
+
+    expect(monitoringMock.recordDispatchEvent).toHaveBeenCalledTimes(1);
+    const event = monitoringMock.recordDispatchEvent.mock.calls[0][0];
+    expect(event.status).toBe('SUCCESS');
+    expect(event.provider).toBe('BITBUCKET_PIPELINES');
+    expect(event.prId).toBe(7);
+    expect(event.projectUuid).toBe('{proj-uuid-9999}');
+  });
+
+  it('records a SKIPPED monitoring event when keyword is absent and monitoring is on', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kvsMock = jest.requireMock('@forge/kvs') as any;
+    (kvsMock.default.get as jest.Mock).mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      monitoringEnabled: true,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitoringMock = jest.requireMock('../monitoring') as any;
+    (monitoringMock.recordDispatchEvent as jest.Mock).mockReset();
+
+    mockRequestBitbucket.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: { raw: 'no keyword here' } }),
+      text: async () => '',
+    });
+
+    await runDispatcher(makeEvent());
+
+    expect(monitoringMock.recordDispatchEvent).toHaveBeenCalledTimes(1);
+    const event = monitoringMock.recordDispatchEvent.mock.calls[0][0];
+    expect(event.status).toBe('SKIPPED');
+  });
+
+  it('records a FAILURE monitoring event when trigger fails and monitoring is on', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kvsMock = jest.requireMock('@forge/kvs') as any;
+    (kvsMock.default.get as jest.Mock).mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      monitoringEnabled: true,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitoringMock = jest.requireMock('../monitoring') as any;
+    (monitoringMock.recordDispatchEvent as jest.Mock).mockReset();
+
+    mockRequestBitbucket
+      // fetchCommentContent
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      // fetchRepositoryDetails
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
+        text: async () => '',
+      })
+      // triggerPipeline fails
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error',
+      })
+      // postFailureComment
+      .mockResolvedValueOnce({ ok: true, text: async () => '' });
+
+    await runDispatcher(makeEvent());
+
+    expect(monitoringMock.recordDispatchEvent).toHaveBeenCalledTimes(1);
+    const event = monitoringMock.recordDispatchEvent.mock.calls[0][0];
+    expect(event.status).toBe('FAILURE');
+    expect(event.provider).toBe('BITBUCKET_PIPELINES');
+  });
+
+  it('does not record monitoring events when monitoringEnabled is false', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitoringMock = jest.requireMock('../monitoring') as any;
+    (monitoringMock.recordDispatchEvent as jest.Mock).mockReset();
+
+    mockRequestBitbucket
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: { raw: '@agent please review' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slug: 'spoke-repo', workspace: { slug: 'my-workspace' } }),
+        text: async () => '',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ uuid: '{pipeline-uuid}', build_number: 1 }),
+        text: async () => '',
+      })
+      // postSuccessComment
+      .mockResolvedValueOnce({ ok: true, text: async () => '' });
+
+    await runDispatcher(makeEvent());
+
+    expect(monitoringMock.recordDispatchEvent).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// postSuccessComment
+// ---------------------------------------------------------------------------
+
+describe('postSuccessComment', () => {
+  beforeEach(() => mockRequestBitbucket.mockReset());
+
+  it('posts a comment with build URL when provided', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    });
+
+    await postSuccessComment('{ws}', '{repo}', 1, 42, 'https://example.com/pipeline/1');
+
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockRequestBitbucket.mock.calls[0][1].body as string);
+    expect(body.content.raw).toContain('Agent build started');
+    expect(body.content.raw).toContain('https://example.com/pipeline/1');
+    expect(body.parent).toEqual({ id: 42 });
+  });
+
+  it('posts a generic message when build URL is not provided', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    });
+
+    await postSuccessComment('{ws}', '{repo}', 1, 42);
+
+    const body = JSON.parse(mockRequestBitbucket.mock.calls[0][1].body as string);
+    expect(body.content.raw).toBe('Agent build started successfully.');
+  });
+
+  it('does not throw when the API call fails', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: false,
+      text: async () => 'Forbidden',
+    });
+
+    await expect(
+      postSuccessComment('{ws}', '{repo}', 1, 42, 'https://example.com'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not throw when requestBitbucket itself rejects', async () => {
+    mockRequestBitbucket.mockRejectedValue(new Error('Network error'));
+
+    await expect(
+      postSuccessComment('{ws}', '{repo}', 1, 42),
+    ).resolves.toBeUndefined();
+  });
+
+  it('omits parent when commentId is 0', async () => {
+    mockRequestBitbucket.mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    });
+
+    await postSuccessComment('{ws}', '{repo}', 1, 0, 'https://example.com');
+
+    const body = JSON.parse(mockRequestBitbucket.mock.calls[0][1].body as string);
+    expect(body.parent).toBeUndefined();
   });
 });

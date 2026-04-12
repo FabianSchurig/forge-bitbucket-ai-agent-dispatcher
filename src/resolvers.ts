@@ -1,8 +1,9 @@
 import Resolver from '@forge/resolver';
 import { getSettings, saveSettings } from './storage';
+import { getDispatchEvents } from './monitoring';
 import { ProviderFactory } from './factories/ProviderFactory';
 import { CIProviderError } from './interfaces/CIProviderError';
-import type { AppConfig, DispatchContext } from './types';
+import type { AppConfig, DispatchContext, DispatchEvent } from './types';
 import type { BuildPayload, BuildResult } from './interfaces/CIProvider';
 
 const resolver = new Resolver();
@@ -84,6 +85,20 @@ resolver.define('startDeployment', async ({ payload }: {
     return { success: false, message };
   }
 });
+
+/**
+ * Returns recent dispatch monitoring events scoped to the given project.
+ * The UI passes the project UUID from the Forge extension context so
+ * only events relevant to the current project are returned.
+ * Returns an empty array when no projectUuid is provided to prevent
+ * cross-project metadata leaks.
+ */
+resolver.define(
+  'getMonitoringEvents',
+  async ({ payload }: { payload: { projectUuid?: string } }): Promise<DispatchEvent[]> => {
+    return await getDispatchEvents(payload?.projectUuid);
+  },
+);
 
 /** Resolver handler exported for use in manifest.yml. */
 export const handler = resolver.getDefinitions();
