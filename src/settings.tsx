@@ -277,7 +277,7 @@ export const SettingsForm = () => {
               </Text>
             </SectionMessage>
 
-            <SectionMessage appearance="info" title="Egress Permission Required">
+            <SectionMessage appearance="information" title="Egress Permission Required">
               <Text>
                 Saving a Jenkins URL triggers an Atlassian approval dialog that allows the app to
                 connect to your Jenkins server. Only Workspace Administrators can approve this request.
