@@ -68,11 +68,14 @@ jobs:
           cache: 'npm'
 
       - name: Install Project Dependencies
-        # @forge/cli ^12.0.0 is listed in devDependencies, so npm ci installs it
-        # into node_modules/.bin/forge. GitHub Actions prepends node_modules/.bin
-        # to PATH, so the local version (which supports Customer-Managed Egress)
-        # always takes precedence over any globally-installed CLI.
-        run: npm ci
+        # @forge/cli is listed in devDependencies so npm ci installs it into
+        # node_modules/.bin/forge. GitHub Actions does NOT automatically add
+        # node_modules/.bin to PATH for shell steps (only npm run scripts get it).
+        # We append it to $GITHUB_PATH here so every subsequent step can invoke
+        # the forge binary directly without a global install.
+        run: |
+          npm ci
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Disable Forge Usage Analytics (CI standard)
         run: forge settings set usage-analytics false
