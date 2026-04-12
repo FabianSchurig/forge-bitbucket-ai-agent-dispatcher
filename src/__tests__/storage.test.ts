@@ -85,14 +85,15 @@ describe('getSettings (project-scoped)', () => {
 
     await getSettings('{proj-uuid}');
 
-    // Should try project-scoped key then fall back to legacy
-    expect(mockStorageGet).toHaveBeenCalledWith('dispatch-config-{proj-uuid}');
+    // Curly braces in Bitbucket UUIDs are stripped before use as a KVS key
+    // because the KVS pattern only allows [a-zA-Z0-9:._\s-#].
+    expect(mockStorageGet).toHaveBeenCalledWith('dispatch-config-proj-uuid');
     expect(mockStorageGet).toHaveBeenCalledWith('appConfig');
   });
 
   it('returns project-scoped config when it exists', async () => {
     mockStorageGet.mockImplementation(async (key: string) => {
-      if (key === 'dispatch-config-{proj-uuid}') {
+      if (key === 'dispatch-config-proj-uuid') {
         return { triggerKeyword: '!project-bot', hubRepository: 'project-hub' };
       }
       return undefined;
@@ -119,10 +120,10 @@ describe('getSettings (project-scoped)', () => {
 
   it('prefers repo-level override over project-level config', async () => {
     mockStorageGet.mockImplementation(async (key: string) => {
-      if (key === 'dispatch-config-repo-{repo-uuid}') {
+      if (key === 'dispatch-config-repo-repo-uuid') {
         return { triggerKeyword: '!repo-override' };
       }
-      if (key === 'dispatch-config-{proj-uuid}') {
+      if (key === 'dispatch-config-proj-uuid') {
         return { triggerKeyword: '!project-config' };
       }
       return undefined;
@@ -135,7 +136,7 @@ describe('getSettings (project-scoped)', () => {
 
   it('falls back to project config when repo-level is empty', async () => {
     mockStorageGet.mockImplementation(async (key: string) => {
-      if (key === 'dispatch-config-{proj-uuid}') {
+      if (key === 'dispatch-config-proj-uuid') {
         return { triggerKeyword: '!project-config' };
       }
       return undefined;
@@ -227,12 +228,13 @@ describe('saveSettings (project-scoped)', () => {
     await saveSettings({ triggerKeyword: '!project' }, '{proj-uuid}');
 
     const [key] = mockStorageSet.mock.calls[0] as [string, unknown];
-    expect(key).toBe('dispatch-config-{proj-uuid}');
+    // Curly braces are stripped from Bitbucket UUIDs before use as KVS keys.
+    expect(key).toBe('dispatch-config-proj-uuid');
   });
 
   it('merges partial updates into project-scoped config', async () => {
     mockStorageGet.mockImplementation(async (key: string) => {
-      if (key === 'dispatch-config-{proj-uuid}') {
+      if (key === 'dispatch-config-proj-uuid') {
         return { ...DEFAULT_CONFIG, triggerKeyword: '!existing' };
       }
       return undefined;
@@ -240,7 +242,7 @@ describe('saveSettings (project-scoped)', () => {
 
     await saveSettings({ hubRepository: 'new-hub' }, '{proj-uuid}');
 
-    expect(mockStorageSet).toHaveBeenCalledWith('dispatch-config-{proj-uuid}', {
+    expect(mockStorageSet).toHaveBeenCalledWith('dispatch-config-proj-uuid', {
       ...DEFAULT_CONFIG,
       triggerKeyword: '!existing',
       hubRepository: 'new-hub',

@@ -8,12 +8,24 @@ import { AppConfig, DEFAULT_CONFIG } from './types';
 const LEGACY_STORAGE_KEY = 'appConfig';
 
 /**
+ * Strips the curly-brace wrapper that Bitbucket wraps all UUIDs in
+ * (e.g. "{abc-123}" → "abc-123") so the result can be used safely as a
+ * Forge KVS storage key.
+ *
+ * The KVS key pattern only allows [a-zA-Z0-9:._\s-#] — curly braces are
+ * NOT permitted and will cause a ForgeKvsAPIError at runtime.
+ */
+function sanitizeUuid(uuid: string): string {
+  return uuid.replace(/[{}]/g, '');
+}
+
+/**
  * Builds the Forge Storage key for a project-scoped config.
  * All configuration is namespaced by the Bitbucket project UUID so
  * different projects in the same workspace can use different CI backends.
  */
 function projectKey(projectUuid: string): string {
-  return `dispatch-config-${projectUuid}`;
+  return `dispatch-config-${sanitizeUuid(projectUuid)}`;
 }
 
 /**
@@ -25,7 +37,7 @@ function projectKey(projectUuid: string): string {
  * A repository-level settings UI may be added later.
  */
 function repoKey(repoUuid: string): string {
-  return `dispatch-config-repo-${repoUuid}`;
+  return `dispatch-config-repo-${sanitizeUuid(repoUuid)}`;
 }
 
 /**

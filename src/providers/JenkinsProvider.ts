@@ -18,6 +18,28 @@ import type { CIProvider, BuildPayload, BuildResult } from '../interfaces/CIProv
 import { CIProviderError } from '../interfaces/CIProviderError';
 import type { AppConfig, DispatchContext } from '../types';
 
+/**
+ * Wraps an unknown caught error into a CIProviderError.
+ *
+ * REQUEST_EGRESS_ALLOWLIST_ERR is thrown by the Forge network proxy when the
+ * Jenkins domain has not been approved via Customer-Managed Egress or a
+ * workspace admin has since revoked the approval.  The error is given a clear,
+ * actionable message so the PR failure comment explains what needs to be done.
+ *
+ * All other errors are wrapped with their original message preserved.
+ */
+function wrapJenkinsError(error: unknown): CIProviderError {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('REQUEST_EGRESS_ALLOWLIST_ERR')) {
+    return new CIProviderError(
+      'Jenkins',
+      'Jenkins domain is not in the approved egress allowlist. ' +
+      'Ask your workspace admin to re-authorize the Jenkins URL in the app settings.',
+    );
+  }
+  return new CIProviderError('Jenkins', message);
+}
+
 export class JenkinsProvider implements CIProvider {
   private readonly jenkinsUrl: string;
   private readonly jenkinsJobPath: string;
@@ -91,21 +113,7 @@ export class JenkinsProvider implements CIProvider {
       if (error instanceof CIProviderError) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
-
-      // REQUEST_EGRESS_ALLOWLIST_ERR is thrown by the Forge network proxy when
-      // the Jenkins domain has not been approved via Customer-Managed Egress or
-      // a workspace admin has since revoked the approval.  Surface a clear,
-      // actionable message so the PR comment explains what needs to be done.
-      if (message.includes('REQUEST_EGRESS_ALLOWLIST_ERR')) {
-        throw new CIProviderError(
-          'Jenkins',
-          'Jenkins domain is not in the approved egress allowlist. ' +
-          'Ask your workspace admin to re-authorize the Jenkins URL in the app settings.',
-        );
-      }
-
-      throw new CIProviderError('Jenkins', message);
+      throw wrapJenkinsError(error);
     }
   }
 
@@ -179,19 +187,7 @@ export class JenkinsProvider implements CIProvider {
       if (error instanceof CIProviderError) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
-
-      // Detect when the Forge proxy blocks the request because the Jenkins domain
-      // is not (or is no longer) in the egress allowlist.
-      if (message.includes('REQUEST_EGRESS_ALLOWLIST_ERR')) {
-        throw new CIProviderError(
-          'Jenkins',
-          'Jenkins domain is not in the approved egress allowlist. ' +
-          'Ask your workspace admin to re-authorize the Jenkins URL in the app settings.',
-        );
-      }
-
-      throw new CIProviderError('Jenkins', message);
+      throw wrapJenkinsError(error);
     }
   }
 }
