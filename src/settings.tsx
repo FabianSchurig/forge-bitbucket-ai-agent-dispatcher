@@ -70,9 +70,11 @@ export const SettingsForm = () => {
         const data = await invoke<AppConfig>('getSettings', { projectUuid: uuid });
         setFormValues(data ?? DEFAULT_CONFIG);
 
-        // Load monitoring events (best-effort — errors are silently ignored).
+        // Load project-scoped monitoring events (best-effort — errors are silently ignored).
         try {
-          const events = await invoke<DispatchEvent[]>('getMonitoringEvents', {});
+          const events = await invoke<DispatchEvent[]>('getMonitoringEvents', {
+            projectUuid: uuid,
+          });
           setMonitoringEvents(events ?? []);
         } catch {
           // Non-critical — the settings page still works without monitoring data.

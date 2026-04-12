@@ -77,6 +77,12 @@ export type DispatchStatus = 'SUCCESS' | 'FAILURE' | 'SKIPPED';
 export interface DispatchEvent {
   /** ISO 8601 timestamp of the event. */
   timestamp: string;
+  /**
+   * Bitbucket project UUID that this event belongs to.
+   * Events are scoped by project so the settings UI only shows events
+   * relevant to the current project context.
+   */
+  projectUuid: string;
   /** Workspace UUID where the event originated. */
   workspaceUuid: string;
   /** Repository UUID where the event originated. */

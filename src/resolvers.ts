@@ -87,12 +87,18 @@ resolver.define('startDeployment', async ({ payload }: {
 });
 
 /**
- * Returns recent dispatch monitoring events.
- * Used by the settings UI to display an activity log.
+ * Returns recent dispatch monitoring events scoped to the given project.
+ * The UI passes the project UUID from the Forge extension context so
+ * only events relevant to the current project are returned.
+ * Returns an empty array when no projectUuid is provided to prevent
+ * cross-project metadata leaks.
  */
-resolver.define('getMonitoringEvents', async (): Promise<DispatchEvent[]> => {
-  return await getDispatchEvents();
-});
+resolver.define(
+  'getMonitoringEvents',
+  async ({ payload }: { payload: { projectUuid?: string } }): Promise<DispatchEvent[]> => {
+    return await getDispatchEvents(payload?.projectUuid);
+  },
+);
 
 /** Resolver handler exported for use in manifest.yml. */
 export const handler = resolver.getDefinitions();

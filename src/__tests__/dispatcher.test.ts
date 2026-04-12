@@ -20,6 +20,7 @@ jest.mock('@forge/kvs', () => ({
   default: {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -604,7 +605,7 @@ describe('runDispatcher', () => {
     const successCommentBody = JSON.parse(
       mockRequestBitbucket.mock.calls[3][1].body as string,
     );
-    expect(successCommentBody.content.raw).toContain('Agent pipeline started');
+    expect(successCommentBody.content.raw).toContain('Agent build started');
     expect(successCommentBody.content.raw).toContain('pipelines/results/99');
     expect(successCommentBody.parent).toEqual({ id: 42 });
   });
@@ -648,6 +649,7 @@ describe('runDispatcher', () => {
     expect(event.status).toBe('SUCCESS');
     expect(event.provider).toBe('BITBUCKET_PIPELINES');
     expect(event.prId).toBe(7);
+    expect(event.projectUuid).toBe('{proj-uuid-9999}');
   });
 
   it('records a SKIPPED monitoring event when keyword is absent and monitoring is on', async () => {
@@ -765,7 +767,7 @@ describe('postSuccessComment', () => {
 
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
     const body = JSON.parse(mockRequestBitbucket.mock.calls[0][1].body as string);
-    expect(body.content.raw).toContain('Agent pipeline started');
+    expect(body.content.raw).toContain('Agent build started');
     expect(body.content.raw).toContain('https://example.com/pipeline/1');
     expect(body.parent).toEqual({ id: 42 });
   });
@@ -779,7 +781,7 @@ describe('postSuccessComment', () => {
     await postSuccessComment('{ws}', '{repo}', 1, 42);
 
     const body = JSON.parse(mockRequestBitbucket.mock.calls[0][1].body as string);
-    expect(body.content.raw).toBe('Agent pipeline started successfully.');
+    expect(body.content.raw).toBe('Agent build started successfully.');
   });
 
   it('does not throw when the API call fails', async () => {

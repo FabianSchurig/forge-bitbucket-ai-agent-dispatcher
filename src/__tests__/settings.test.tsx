@@ -231,6 +231,14 @@ describe('SettingsForm', () => {
     });
   });
 
+  it('passes project UUID to the getMonitoringEvents resolver', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('getMonitoringEvents', { projectUuid: '{proj-uuid-test}' });
+    });
+  });
+
   it('shows success message after a successful save', async () => {
     let saveResolved = false;
     mockInvoke.mockImplementation((key: string) => {
@@ -420,6 +428,7 @@ describe('SettingsForm', () => {
     const events = [
       {
         timestamp: '2026-04-12T14:00:00.000Z',
+        projectUuid: '{proj-uuid-test}',
         workspaceUuid: '{ws-uuid}',
         repoUuid: '{repo-uuid}',
         prId: 7,

@@ -10,6 +10,7 @@ jest.mock('@forge/kvs', () => ({
   default: {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -17,6 +18,7 @@ jest.mock('@forge/kvs', () => ({
 const kvsMock = jest.requireMock('@forge/kvs') as any;
 const mockGet: jest.Mock = kvsMock.default.get;
 const mockSet: jest.Mock = kvsMock.default.set;
+const mockDelete: jest.Mock = kvsMock.default.delete;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +27,7 @@ const mockSet: jest.Mock = kvsMock.default.set;
 function makeEvent(overrides: Partial<DispatchEvent> = {}): DispatchEvent {
   return {
     timestamp: '2026-04-12T14:00:00.000Z',
+    projectUuid: '{proj-uuid}',
     workspaceUuid: '{ws-uuid}',
     repoUuid: '{repo-uuid}',
     prId: 7,
@@ -44,51 +47,63 @@ describe('monitoring', () => {
   beforeEach(() => {
     mockGet.mockReset();
     mockSet.mockReset();
+    mockDelete.mockReset();
     mockGet.mockResolvedValue(undefined);
     mockSet.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
   });
 
   // -- recordDispatchEvent ------------------------------------------------
 
   describe('recordDispatchEvent', () => {
-    it('stores a new event when no existing events exist', async () => {
+    it('stores a new event when no existing index exists', async () => {
       mockGet.mockResolvedValue(undefined);
 
       const event = makeEvent();
       await recordDispatchEvent(event);
 
-      expect(mockSet).toHaveBeenCalledTimes(1);
-      expect(mockSet).toHaveBeenCalledWith('dispatch-events', [event]);
+      // Should write the event to its own key.
+      expect(mockSet).toHaveBeenCalledTimes(2); // event + index
+      const eventSetCall = mockSet.mock.calls[0];
+      expect(eventSetCall[1]).toEqual(event);
+
+      // Should write the index with the event key.
+      const indexSetCall = mockSet.mock.calls[1];
+      expect(indexSetCall[1]).toHaveLength(1);
+      expect(indexSetCall[1][0]).toBe(eventSetCall[0]);
     });
 
-    it('prepends a new event to existing events', async () => {
-      const existing = [makeEvent({ prId: 1 })];
-      mockGet.mockResolvedValue(existing);
+    it('prepends a new event key to the existing index', async () => {
+      const existingKey = 'dispatch-evt-proj-uuid-old';
+      // First call: kvs.get for index returns existing keys.
+      mockGet.mockResolvedValueOnce([existingKey]);
 
-      const newEvent = makeEvent({ prId: 2 });
-      await recordDispatchEvent(newEvent);
+      const event = makeEvent({ prId: 2 });
+      await recordDispatchEvent(event);
 
-      const savedEvents = mockSet.mock.calls[0][1] as DispatchEvent[];
-      expect(savedEvents[0].prId).toBe(2);
-      expect(savedEvents[1].prId).toBe(1);
+      // Index should have 2 keys, new one first.
+      const indexSetCall = mockSet.mock.calls[1];
+      expect(indexSetCall[1]).toHaveLength(2);
+      expect(indexSetCall[1][0]).not.toBe(existingKey); // new key is first
+      expect(indexSetCall[1][1]).toBe(existingKey);
     });
 
-    it('trims events to the maximum of 50', async () => {
-      // Create 50 existing events.
-      const existing = Array.from({ length: 50 }, (_, i) =>
-        makeEvent({ prId: i }),
+    it('trims index to the maximum of 50 and deletes old event keys', async () => {
+      // Create 50 existing event keys.
+      const existingKeys = Array.from({ length: 50 }, (_, i) =>
+        `dispatch-evt-proj-uuid-old-${i}`,
       );
-      mockGet.mockResolvedValue(existing);
+      mockGet.mockResolvedValueOnce(existingKeys);
 
-      const newEvent = makeEvent({ prId: 999 });
-      await recordDispatchEvent(newEvent);
+      const event = makeEvent({ prId: 999 });
+      await recordDispatchEvent(event);
 
-      const savedEvents = mockSet.mock.calls[0][1] as DispatchEvent[];
-      expect(savedEvents).toHaveLength(50);
-      // The newest event should be first.
-      expect(savedEvents[0].prId).toBe(999);
-      // The oldest event (index 49) should have been dropped.
-      expect(savedEvents[49].prId).toBe(48);
+      // Index should still be 50 entries (new + 49 old).
+      const indexSetCall = mockSet.mock.calls[1];
+      expect(indexSetCall[1]).toHaveLength(50);
+
+      // The oldest key should have been deleted.
+      expect(mockDelete).toHaveBeenCalledWith('dispatch-evt-proj-uuid-old-49');
     });
 
     it('swallows storage errors without throwing', async () => {
@@ -103,27 +118,56 @@ describe('monitoring', () => {
       const event = makeEvent({ buildUrl: 'https://example.com/pipeline/1' });
       await recordDispatchEvent(event);
 
-      const savedEvents = mockSet.mock.calls[0][1] as DispatchEvent[];
-      expect(savedEvents[0].buildUrl).toBe('https://example.com/pipeline/1');
+      const eventSetCall = mockSet.mock.calls[0];
+      expect(eventSetCall[1].buildUrl).toBe('https://example.com/pipeline/1');
+    });
+
+    it('scopes storage keys by project UUID', async () => {
+      const event = makeEvent({ projectUuid: '{my-project-123}' });
+      await recordDispatchEvent(event);
+
+      // Event key should contain the sanitised project UUID.
+      const eventKey = mockSet.mock.calls[0][0] as string;
+      expect(eventKey).toContain('my-project-123');
+      expect(eventKey).not.toContain('{');
+
+      // Index key should also be project-scoped.
+      const idxKey = mockSet.mock.calls[1][0] as string;
+      expect(idxKey).toBe('dispatch-events-my-project-123');
     });
   });
 
   // -- getDispatchEvents --------------------------------------------------
 
   describe('getDispatchEvents', () => {
-    it('returns stored events', async () => {
+    it('returns events for a specific project', async () => {
+      const eventKeys = ['dispatch-evt-proj-1', 'dispatch-evt-proj-2'];
       const events = [makeEvent({ prId: 1 }), makeEvent({ prId: 2 })];
-      mockGet.mockResolvedValue(events);
 
-      const result = await getDispatchEvents();
+      // First call: get index.
+      mockGet.mockResolvedValueOnce(eventKeys);
+      // Subsequent calls: get individual events.
+      mockGet.mockResolvedValueOnce(events[0]);
+      mockGet.mockResolvedValueOnce(events[1]);
+
+      const result = await getDispatchEvents('{proj-uuid}');
 
       expect(result).toEqual(events);
+      // Should have read the index key for this project.
+      expect(mockGet).toHaveBeenCalledWith('dispatch-events-proj-uuid');
     });
 
-    it('returns an empty array when no events exist', async () => {
+    it('returns an empty array when no projectUuid is provided', async () => {
+      const result = await getDispatchEvents();
+
+      expect(result).toEqual([]);
+      expect(mockGet).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty array when no index exists', async () => {
       mockGet.mockResolvedValue(undefined);
 
-      const result = await getDispatchEvents();
+      const result = await getDispatchEvents('{proj-uuid}');
 
       expect(result).toEqual([]);
     });
@@ -131,9 +175,23 @@ describe('monitoring', () => {
     it('returns an empty array on storage errors', async () => {
       mockGet.mockRejectedValue(new Error('Storage unavailable'));
 
-      const result = await getDispatchEvents();
+      const result = await getDispatchEvents('{proj-uuid}');
 
       expect(result).toEqual([]);
+    });
+
+    it('skips events that fail to load individually', async () => {
+      const eventKeys = ['key-ok', 'key-fail'];
+      const goodEvent = makeEvent({ prId: 1 });
+
+      mockGet.mockResolvedValueOnce(eventKeys);
+      mockGet.mockResolvedValueOnce(goodEvent);
+      mockGet.mockRejectedValueOnce(new Error('gone'));
+
+      const result = await getDispatchEvents('{proj-uuid}');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].prId).toBe(1);
     });
   });
 });

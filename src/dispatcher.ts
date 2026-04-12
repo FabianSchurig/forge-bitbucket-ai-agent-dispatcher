@@ -218,8 +218,8 @@ export async function postSuccessComment(
     // When a build URL is available, include a clickable link.
     // Otherwise fall back to a generic confirmation message.
     const message = buildUrl
-      ? `Agent pipeline started: [View pipeline](${buildUrl})`
-      : 'Agent pipeline started successfully.';
+      ? `Agent build started: [View build](${buildUrl})`
+      : 'Agent build started successfully.';
 
     const body: Record<string, unknown> = {
       content: { raw: message },
@@ -312,6 +312,7 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
       if (config.monitoringEnabled) {
         await recordDispatchEvent({
           timestamp: new Date().toISOString(),
+          projectUuid: context.projectUuid,
           workspaceUuid: context.workspaceUuid,
           repoUuid: context.repoUuid,
           prId: context.prId,
@@ -371,6 +372,7 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     if (config.monitoringEnabled) {
       await recordDispatchEvent({
         timestamp: new Date().toISOString(),
+        projectUuid: context.projectUuid,
         workspaceUuid: context.workspaceUuid,
         repoUuid: context.repoUuid,
         prId: context.prId,
@@ -401,6 +403,7 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
       const errMsg = error instanceof Error ? error.message : String(error);
       await recordDispatchEvent({
         timestamp: new Date().toISOString(),
+        projectUuid: context.projectUuid,
         workspaceUuid: context.workspaceUuid,
         repoUuid: context.repoUuid,
         prId: context.prId,
