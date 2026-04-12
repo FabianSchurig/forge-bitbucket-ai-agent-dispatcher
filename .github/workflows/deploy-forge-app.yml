@@ -3,7 +3,13 @@ name: Deploy Atlassian Forge App
 on:
   push:
     branches:
-      - '**' # Triggers on all branches so feature branches deploy to development for pre-merge validation
+      - '**' # Lint & test run on every branch push for pre-merge validation
+
+# Prevent overlapping deploys to the shared development environment.
+# Only one deploy job runs at a time; newer pushes cancel in-progress ones.
+concurrency:
+  group: forge-deploy-development
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -32,6 +38,9 @@ jobs:
     name: Deploy & Install (Development)
     runs-on: ubuntu-latest
     needs: test # Only deploy when tests pass
+    # Only deploy to the shared development environment from main to avoid
+    # concurrent overwrites from multiple feature branches.
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
 
