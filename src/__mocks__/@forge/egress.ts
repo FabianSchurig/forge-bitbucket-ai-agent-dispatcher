@@ -2,8 +2,9 @@
  * Jest manual mock for @forge/egress.
  *
  * Provides the EgressType enum used by settings.tsx when constructing
- * Customer-Managed Egress payloads.  The values match the real enum so tests
- * can assert on exact strings without coupling to the live Forge package.
+ * Customer-Managed Egress payloads.  Only the values relevant to the app
+ * are included; Forge's backend fetch (FetchBackendSide) is the only one
+ * used in production code.
  *
  * Note: __esModule markers are handled at test time via inline jest.mock()
  * factories.  They must NOT be exported as named exports here because the
@@ -13,11 +14,4 @@
 export enum EgressType {
   FetchBackendSide = 'FETCH_BACKEND_SIDE',
   FetchClientSide = 'FETCH_CLIENT_SIDE',
-  Fonts = 'FONTS',
-  Frames = 'FRAMES',
-  Images = 'IMAGES',
-  Media = 'MEDIA',
-  Navigation = 'NAVIGATION',
-  Scripts = 'SCRIPTS',
-  Styles = 'STYLES',
 }

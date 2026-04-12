@@ -105,7 +105,18 @@ export const SettingsForm = () => {
       try {
         // Extract just the hostname (e.g. "jenkins.example.com") from the URL
         // so we request the narrowest possible egress scope.
-        const hostname = new URL(formValues.jenkinsUrl).hostname;
+        let hostname: string;
+        try {
+          hostname = new URL(formValues.jenkinsUrl).hostname;
+          if (!hostname) {
+            throw new Error('empty hostname');
+          }
+        } catch {
+          setErrorMsg(
+            'Invalid Jenkins URL format. Please enter a valid URL (e.g., https://jenkins.example.com).',
+          );
+          return;
+        }
 
         await permissions.egress.set({
           egresses: [

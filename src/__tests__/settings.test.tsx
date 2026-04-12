@@ -404,6 +404,32 @@ describe('SettingsForm', () => {
     expect(mockInvoke).toHaveBeenCalledTimes(1); // only getSettings
   });
 
+  it('shows invalid URL error when Jenkins URL is malformed', async () => {
+    // Arrange: Jenkins config with an invalid URL.
+    mockInvoke.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'not-a-valid-url',
+    }); // getSettings
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Assert: URL validation error shown; no egress call or save attempted.
+    await waitFor(() => {
+      expect(screen.getByText(/invalid jenkins url format/i)).toBeInTheDocument();
+    });
+    expect(mockPermissionsEgressSet).not.toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledTimes(1); // only getSettings
+  });
+
   it('saves settings successfully after egress permission is granted', async () => {
     // Arrange: Jenkins config; egress approved; save succeeds.
     mockInvoke
