@@ -2,13 +2,13 @@ import api, { route } from '@forge/api';
 import { getSettings } from './storage';
 import { ProviderFactory } from './factories/ProviderFactory';
 import { CIProviderError } from './interfaces/CIProviderError';
+import { recordDispatchEvent } from './monitoring';
 import type {
   AppConfig,
   DispatchContext,
   PipelinePayload,
 } from './types';
 import type { BuildPayload } from './interfaces/CIProvider';
-import { buildPipelinePayload } from './pipelinePayload';
 
 // Re-export the shared helper so existing tests and callers keep working.
 export { buildPipelinePayload } from './pipelinePayload';
@@ -199,6 +199,54 @@ export async function postFailureComment(
   }
 }
 
+/**
+ * Posts a success reply to the original PR comment with a link to the
+ * triggered pipeline/build.  This gives the user immediate feedback about
+ * where to follow the agent session progress.
+ *
+ * Errors are swallowed so that a secondary failure does not obscure the
+ * successful dispatch — the build has already been triggered at this point.
+ */
+export async function postSuccessComment(
+  workspaceUuid: string,
+  repoUuid: string,
+  prId: number,
+  commentId: number,
+  buildUrl?: string,
+): Promise<void> {
+  try {
+    // When a build URL is available, include a clickable link.
+    // Otherwise fall back to a generic confirmation message.
+    const message = buildUrl
+      ? `Agent pipeline started: [View pipeline](${buildUrl})`
+      : 'Agent pipeline started successfully.';
+
+    const body: Record<string, unknown> = {
+      content: { raw: message },
+    };
+    if (commentId > 0) {
+      body.parent = { id: commentId };
+    }
+
+    const response = await api
+      .asApp()
+      .requestBitbucket(
+        route`/2.0/repositories/${workspaceUuid}/${repoUuid}/pullrequests/${prId}/comments`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+
+    if (!response.ok) {
+      console.error('Failed to post success comment:', await response.text());
+    }
+  } catch (err) {
+    console.error('Error posting success comment:', err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main trigger handler
 // ---------------------------------------------------------------------------
@@ -239,6 +287,9 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     `project=${context.projectUuid || 'none'}).`,
   );
 
+  // Load config early so we can check monitoringEnabled for all code paths.
+  let config: AppConfig | undefined;
+
   try {
     // Fetch comment content (not included in the Forge event payload).
     const commentText = await fetchCommentContent(
@@ -250,12 +301,26 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     context.commentText = commentText;
 
     // Use project-scoped config with optional repo-level override.
-    const config = await getSettings(context.projectUuid, context.repoUuid);
+    config = await getSettings(context.projectUuid, context.repoUuid);
 
     if (!context.commentText.includes(config.triggerKeyword)) {
       console.log(
         `Dispatcher: trigger keyword "${config.triggerKeyword}" not found in comment – skipping.`,
       );
+
+      // Record a SKIPPED monitoring event when monitoring is enabled.
+      if (config.monitoringEnabled) {
+        await recordDispatchEvent({
+          timestamp: new Date().toISOString(),
+          workspaceUuid: context.workspaceUuid,
+          repoUuid: context.repoUuid,
+          prId: context.prId,
+          commentId: context.commentId,
+          status: 'SKIPPED',
+          provider: '',
+          message: `Trigger keyword "${config.triggerKeyword}" not found in comment.`,
+        });
+      }
       return;
     }
 
@@ -291,6 +356,31 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
     console.log(
       `Dispatcher: ${result.message}`,
     );
+
+    // Post a reply to the triggering comment with a link to the pipeline.
+    // This gives the user immediate feedback about where to follow progress.
+    await postSuccessComment(
+      context.workspaceUuid,
+      context.repoUuid,
+      context.prId,
+      context.commentId,
+      result.buildUrl,
+    );
+
+    // Record a SUCCESS monitoring event when monitoring is enabled.
+    if (config.monitoringEnabled) {
+      await recordDispatchEvent({
+        timestamp: new Date().toISOString(),
+        workspaceUuid: context.workspaceUuid,
+        repoUuid: context.repoUuid,
+        prId: context.prId,
+        commentId: context.commentId,
+        status: 'SUCCESS',
+        provider: config.ciType,
+        message: result.message,
+        buildUrl: result.buildUrl,
+      });
+    }
   } catch (error) {
     // Log the specific provider name if available via CIProviderError.
     if (error instanceof CIProviderError) {
@@ -305,5 +395,20 @@ export async function runDispatcher(event: Record<string, unknown>): Promise<voi
       context.prId,
       context.commentId,
     );
+
+    // Record a FAILURE monitoring event when monitoring is enabled.
+    if (config?.monitoringEnabled) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      await recordDispatchEvent({
+        timestamp: new Date().toISOString(),
+        workspaceUuid: context.workspaceUuid,
+        repoUuid: context.repoUuid,
+        prId: context.prId,
+        commentId: context.commentId,
+        status: 'FAILURE',
+        provider: config.ciType,
+        message: errMsg,
+      });
+    }
   }
 }

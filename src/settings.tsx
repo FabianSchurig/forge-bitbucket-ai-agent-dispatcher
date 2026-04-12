@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import ForgeReconciler, {
   Button,
+  DynamicTable,
   Form,
   FormSection,
   Label,
+  Lozenge,
   SectionMessage,
   Stack,
   Heading,
   Textfield,
   Text,
   Select,
+  Toggle,
 } from '@forge/react';
 import { invoke, view } from '@forge/bridge';
 import { AppConfig, DEFAULT_CONFIG } from './types';
+import type { DispatchEvent } from './types';
 import type { CIProviderType } from './interfaces/CIProvider';
 
 // The InputEvent type from Forge UI Kit 2 is a serialisable event object (not
@@ -41,6 +45,9 @@ export const SettingsForm = () => {
   // includes the project this page belongs to.
   const [projectUuid, setProjectUuid] = useState<string>('');
 
+  // Monitoring events loaded from storage (newest-first).
+  const [monitoringEvents, setMonitoringEvents] = useState<DispatchEvent[]>([]);
+
   useEffect(() => {
     // Retrieve the project UUID from the Forge extension context.
     // For bitbucket:projectSettingsMenuPage, this is at
@@ -62,6 +69,14 @@ export const SettingsForm = () => {
         // Pass the project UUID to the resolver so it fetches project-scoped config.
         const data = await invoke<AppConfig>('getSettings', { projectUuid: uuid });
         setFormValues(data ?? DEFAULT_CONFIG);
+
+        // Load monitoring events (best-effort — errors are silently ignored).
+        try {
+          const events = await invoke<DispatchEvent[]>('getMonitoringEvents', {});
+          setMonitoringEvents(events ?? []);
+        } catch {
+          // Non-critical — the settings page still works without monitoring data.
+        }
       } catch (err: unknown) {
         console.error('Failed to load settings:', err);
         setErrorMsg('Failed to load settings. Showing defaults.');
@@ -87,6 +102,14 @@ export const SettingsForm = () => {
         ciType: option.value as CIProviderType,
       }));
     }
+  };
+
+  // Handler for the monitoring toggle.
+  const handleMonitoringToggle = (): void => {
+    setFormValues((prev: AppConfig) => ({
+      ...prev,
+      monitoringEnabled: !prev.monitoringEnabled,
+    }));
   };
 
   // Form onSubmit must match `() => Promise<void | boolean> | void` (no args).
@@ -247,6 +270,72 @@ export const SettingsForm = () => {
           Save Settings
         </Button>
       </Form>
+
+      {/* Monitoring section — shows recent dispatch events when enabled. */}
+      <Heading as="h2">Monitoring</Heading>
+
+      <FormSection>
+        <Label labelFor="monitoringEnabled">Enable Monitoring</Label>
+        <Toggle
+          id="monitoringEnabled"
+          isChecked={formValues.monitoringEnabled}
+          onChange={handleMonitoringToggle}
+        />
+        <Text>
+          When enabled, the dispatcher records each event (success, failure, skipped) for review here.
+        </Text>
+      </FormSection>
+
+      {formValues.monitoringEnabled && monitoringEvents.length > 0 && (
+        <DynamicTable
+          head={{
+            cells: [
+              { key: 'timestamp', content: 'Timestamp' },
+              { key: 'status', content: 'Status' },
+              { key: 'prId', content: 'PR' },
+              { key: 'provider', content: 'Provider' },
+              { key: 'message', content: 'Message' },
+            ],
+          }}
+          rows={monitoringEvents.map((evt, index) => ({
+            key: `event-${index}`,
+            cells: [
+              {
+                key: `ts-${index}`,
+                content: new Date(evt.timestamp).toLocaleString(),
+              },
+              {
+                key: `status-${index}`,
+                content: (
+                  <Lozenge
+                    appearance={
+                      evt.status === 'SUCCESS'
+                        ? 'success'
+                        : evt.status === 'FAILURE'
+                          ? 'removed'
+                          : 'default'
+                    }
+                  >
+                    {evt.status}
+                  </Lozenge>
+                ),
+              },
+              { key: `pr-${index}`, content: `#${evt.prId}` },
+              { key: `provider-${index}`, content: evt.provider || '—' },
+              { key: `msg-${index}`, content: evt.message },
+            ],
+          }))}
+        />
+      )}
+
+      {formValues.monitoringEnabled && monitoringEvents.length === 0 && (
+        <SectionMessage appearance="information" title="No events yet">
+          <Text>
+            No dispatch events have been recorded yet. Events will appear here
+            after the dispatcher processes PR comments.
+          </Text>
+        </SectionMessage>
+      )}
     </Stack>
   );
 };

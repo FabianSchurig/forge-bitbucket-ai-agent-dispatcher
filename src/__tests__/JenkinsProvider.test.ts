@@ -86,7 +86,7 @@ describe('JenkinsProvider', () => {
   // -- triggerBuild --------------------------------------------------------
 
   describe('triggerBuild', () => {
-    it('triggers a Jenkins build and returns a success result', async () => {
+    it('triggers a Jenkins build and returns a success result with build URL', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         status: 201,
@@ -100,6 +100,9 @@ describe('JenkinsProvider', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('Jenkins build triggered');
       expect(result.buildId).toBe('42');
+      expect(result.buildUrl).toBe(
+        'https://jenkins.example.com/job/my-folder/job/my-job',
+      );
     });
 
     it('calls the correct Jenkins buildWithParameters URL', async () => {

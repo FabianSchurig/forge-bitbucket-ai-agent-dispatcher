@@ -1,8 +1,9 @@
 import Resolver from '@forge/resolver';
 import { getSettings, saveSettings } from './storage';
+import { getDispatchEvents } from './monitoring';
 import { ProviderFactory } from './factories/ProviderFactory';
 import { CIProviderError } from './interfaces/CIProviderError';
-import type { AppConfig, DispatchContext } from './types';
+import type { AppConfig, DispatchContext, DispatchEvent } from './types';
 import type { BuildPayload, BuildResult } from './interfaces/CIProvider';
 
 const resolver = new Resolver();
@@ -83,6 +84,14 @@ resolver.define('startDeployment', async ({ payload }: {
     console.error('startDeployment: unexpected error:', message);
     return { success: false, message };
   }
+});
+
+/**
+ * Returns recent dispatch monitoring events.
+ * Used by the settings UI to display an activity log.
+ */
+resolver.define('getMonitoringEvents', async (): Promise<DispatchEvent[]> => {
+  return await getDispatchEvents();
 });
 
 /** Resolver handler exported for use in manifest.yml. */
