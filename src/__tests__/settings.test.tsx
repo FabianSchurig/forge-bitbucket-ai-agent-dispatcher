@@ -8,17 +8,40 @@ import { DEFAULT_CONFIG } from '../types';
 // ---------------------------------------------------------------------------
 
 jest.mock('@forge/bridge', () => ({
+  __esModule: true,
   invoke: jest.fn(),
   view: {
     getContext: jest.fn(),
   },
+  // permissions.egress.set is the Customer-Managed Egress API used when saving
+  // Jenkins settings. It triggers the Atlassian admin consent modal.
+  permissions: {
+    egress: {
+      set: jest.fn(),
+    },
+  },
 }));
 
-// Retrieve a stable reference after the mock factory has run.
+// Retrieve stable references after the mock factory has run.
+// Using jest.requireMock() avoids hoisting issues with outer `let` variables.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const bridgeMock = jest.requireMock('@forge/bridge') as any;
 const mockInvoke: jest.Mock = bridgeMock.invoke;
 const mockGetContext: jest.Mock = bridgeMock.view.getContext;
+const mockPermissionsEgressSet: jest.Mock = bridgeMock.permissions.egress.set;
+
+// ---------------------------------------------------------------------------
+// Mock @forge/egress
+// ---------------------------------------------------------------------------
+// EgressType is imported by settings.tsx to specify the egress direction.
+// FetchBackendSide means Forge's server-side proxy makes the outbound request.
+jest.mock('@forge/egress', () => ({
+  __esModule: true,
+  EgressType: {
+    FetchBackendSide: 'FETCH_BACKEND_SIDE',
+    FetchClientSide: 'FETCH_CLIENT_SIDE',
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Mock @forge/react (UI Kit components → render as plain HTML)
@@ -118,12 +141,15 @@ describe('SettingsForm', () => {
   beforeEach(() => {
     mockInvoke.mockReset();
     mockGetContext.mockReset();
+    mockPermissionsEgressSet.mockReset();
     // Default: view.getContext resolves with a project context.
     mockGetContext.mockResolvedValue({
       extension: {
         project: { uuid: '{proj-uuid-test}' },
       },
     });
+    // Default: egress permission is granted (resolves successfully).
+    mockPermissionsEgressSet.mockResolvedValue({ results: [] });
   });
 
   it('shows a loading indicator while fetching settings', () => {
@@ -256,5 +282,182 @@ describe('SettingsForm', () => {
     await waitFor(() => {
       expect(screen.getByText(/failed to save settings/i)).toBeInTheDocument();
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Customer-Managed Egress tests
+  // ---------------------------------------------------------------------------
+
+  it('requests egress permission for the Jenkins hostname when saving Jenkins config', async () => {
+    // Arrange: load settings with Jenkins URL configured.
+    mockInvoke
+      .mockResolvedValueOnce({
+        ...DEFAULT_CONFIG,
+        ciType: 'JENKINS',
+        jenkinsUrl: 'https://jenkins.example.com',
+      }) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Assert: egress.set was called with the Jenkins hostname.
+    await waitFor(() => {
+      expect(mockPermissionsEgressSet).toHaveBeenCalledWith(
+        expect.objectContaining({
+          egresses: expect.arrayContaining([
+            expect.objectContaining({
+              key: 'jenkins-instance',
+              configured: expect.arrayContaining([
+                expect.objectContaining({
+                  domain: 'jenkins.example.com',
+                  type: expect.arrayContaining(['FETCH_BACKEND_SIDE']),
+                }),
+              ]),
+            }),
+          ]),
+        }),
+      );
+    });
+  });
+
+  it('does not request egress permission when ciType is BITBUCKET_PIPELINES', async () => {
+    // Arrange: default config uses BITBUCKET_PIPELINES.
+    mockInvoke
+      .mockResolvedValueOnce(DEFAULT_CONFIG) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByDisplayValue(DEFAULT_CONFIG.triggerKeyword));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText(/saved successfully/i)).toBeInTheDocument());
+
+    // Assert: no egress call for Bitbucket Pipelines provider.
+    expect(mockPermissionsEgressSet).not.toHaveBeenCalled();
+  });
+
+  it('does not request egress permission when ciType is JENKINS but URL is empty', async () => {
+    // Arrange: Jenkins selected but no URL entered yet.
+    mockInvoke
+      .mockResolvedValueOnce({
+        ...DEFAULT_CONFIG,
+        ciType: 'JENKINS',
+        jenkinsUrl: '',
+      }) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText(/saved successfully/i)).toBeInTheDocument());
+
+    // Assert: no egress call when URL is empty.
+    expect(mockPermissionsEgressSet).not.toHaveBeenCalled();
+  });
+
+  it('shows egress error message when egress permission is denied by the admin', async () => {
+    // Arrange: Jenkins config with a URL, but egress approval is rejected.
+    mockInvoke.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'https://jenkins.example.com',
+    }); // getSettings
+    mockPermissionsEgressSet.mockRejectedValueOnce(new Error('Permission denied by user'));
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Assert: egress-specific error shown; saveSettings never called.
+    await waitFor(() => {
+      // Check for text unique to the error message (not the info section message).
+      expect(screen.getByText(/Jenkins URL approval failed/i)).toBeInTheDocument();
+    });
+    // saveSettings must not be called after a denied egress request.
+    expect(mockInvoke).toHaveBeenCalledTimes(1); // only getSettings
+  });
+
+  it('shows invalid URL error when Jenkins URL is malformed', async () => {
+    // Arrange: Jenkins config with an invalid URL.
+    mockInvoke.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      ciType: 'JENKINS',
+      jenkinsUrl: 'not-a-valid-url',
+    }); // getSettings
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Assert: URL validation error shown; no egress call or save attempted.
+    await waitFor(() => {
+      expect(screen.getByText(/invalid jenkins url format/i)).toBeInTheDocument();
+    });
+    expect(mockPermissionsEgressSet).not.toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledTimes(1); // only getSettings
+  });
+
+  it('saves settings successfully after egress permission is granted', async () => {
+    // Arrange: Jenkins config; egress approved; save succeeds.
+    mockInvoke
+      .mockResolvedValueOnce({
+        ...DEFAULT_CONFIG,
+        ciType: 'JENKINS',
+        jenkinsUrl: 'https://jenkins.mycompany.com',
+      }) // getSettings
+      .mockResolvedValueOnce({ success: true }); // saveSettings
+    mockPermissionsEgressSet.mockResolvedValueOnce({ results: [] });
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    // Act: submit the form.
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Assert: success message shown; saveSettings was called.
+    await waitFor(() => {
+      expect(screen.getByText(/saved successfully/i)).toBeInTheDocument();
+    });
+    const saveCall = mockInvoke.mock.calls.find(
+      (call: unknown[]) => call[0] === 'saveSettings',
+    );
+    expect(saveCall).toBeDefined();
   });
 });

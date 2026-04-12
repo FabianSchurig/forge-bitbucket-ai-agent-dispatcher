@@ -362,5 +362,64 @@ describe('JenkinsProvider', () => {
 
       await expect(provider.getBuildStatus('42')).rejects.toThrow(CIProviderError);
     });
+
+    it('throws CIProviderError with egress guidance when REQUEST_EGRESS_ALLOWLIST_ERR occurs in getBuildStatus', async () => {
+      // Forge's network proxy throws REQUEST_EGRESS_ALLOWLIST_ERR when the
+      // domain has not been approved via Customer-Managed Egress or was revoked.
+      mockFetch.mockRejectedValue(new Error('REQUEST_EGRESS_ALLOWLIST_ERR: domain not in allowlist'));
+
+      const provider = new JenkinsProvider(makeConfig(), 'my-token');
+
+      try {
+        await provider.getBuildStatus('42');
+        fail('Expected CIProviderError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(CIProviderError);
+        // The message should guide the admin to re-authorize the URL.
+        expect((err as CIProviderError).message).toMatch(/egress|re-authorize|allowlist/i);
+        expect((err as CIProviderError).providerName).toBe('Jenkins');
+      }
+    });
+  });
+
+  // -- Egress allowlist error handling -------------------------------------
+
+  describe('egress allowlist error handling', () => {
+    it('throws CIProviderError with egress guidance when REQUEST_EGRESS_ALLOWLIST_ERR occurs in triggerBuild', async () => {
+      // Forge's proxy returns REQUEST_EGRESS_ALLOWLIST_ERR when the Jenkins
+      // domain was never approved by an admin or has since been revoked.
+      mockFetch.mockRejectedValue(
+        new Error('REQUEST_EGRESS_ALLOWLIST_ERR: https://jenkins.example.com is not in the allowlist'),
+      );
+
+      const provider = new JenkinsProvider(makeConfig(), 'my-token');
+
+      try {
+        await provider.triggerBuild(makePayload(), makeContext());
+        fail('Expected CIProviderError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(CIProviderError);
+        // Error message should clearly indicate this is an egress allowlist
+        // issue and direct the admin to re-authorize the domain in settings.
+        expect((err as CIProviderError).message).toMatch(/egress|re-authorize|allowlist/i);
+        expect((err as CIProviderError).providerName).toBe('Jenkins');
+      }
+    });
+
+    it('does not lose other error details when wrapping non-egress errors', async () => {
+      // Verify that non-egress network errors are still wrapped normally
+      // and do not accidentally match the egress error pattern.
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED: connection refused'));
+
+      const provider = new JenkinsProvider(makeConfig(), 'my-token');
+
+      try {
+        await provider.triggerBuild(makePayload(), makeContext());
+        fail('Expected CIProviderError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(CIProviderError);
+        expect((err as CIProviderError).message).toContain('ECONNREFUSED');
+      }
+    });
   });
 });
