@@ -41,10 +41,9 @@ permissions:
     # Customer-Managed Egress: workspace admins can dynamically approve specific
     # Jenkins domains at runtime via a native Atlassian consent modal rather
     # than requiring static manifest entries.
-    # IMPORTANT: Once `configurable.enabled` is set to true and deployed to
+    # IMPORTANT: Once `configurable` is set to true and deployed to
     # production it is immutable and cannot be removed.
-    configurable:
-      enabled: true
+    configurable: true
     fetch:
       # Jenkins instances — workspace admins must add their Jenkins host(s) here.
       # Forge blocks outbound requests to any domain not explicitly listed.
