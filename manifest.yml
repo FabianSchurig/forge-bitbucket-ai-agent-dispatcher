@@ -39,9 +39,10 @@ permissions:
     - storage:app
   external:
     fetch:
-      backend:
-        # Jenkins instances — workspace admins must add their Jenkins host(s) here.
-        # Forge blocks outbound requests to any domain not explicitly listed.
-        # Leave this list empty by default and add only exact hostnames as needed.
-        # Example:
-        #   - 'jenkins.example.com'
+      # Jenkins instances — workspace admins must add their Jenkins host(s) here.
+      # Forge blocks outbound requests to any domain not explicitly listed.
+      # Leave this list empty by default and add only exact hostnames as needed.
+      # Example:
+      #   backend:
+      #     - 'jenkins.example.com'
+      backend: []

@@ -2,7 +2,7 @@
   "name": "forge-bitbucket-ai-agent-dispatcher",
   "version": "1.0.0",
   "description": "Atlassian Forge App – Bitbucket AI Agent Dispatcher. Listens for trigger keywords in PR comments and dispatches a custom pipeline in a central hub repository.",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "main": "src/index.ts",
   "scripts": {
     "test": "jest",

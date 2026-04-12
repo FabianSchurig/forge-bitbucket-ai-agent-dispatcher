@@ -1,13 +1,17 @@
 /**
  * Jest manual mock for @forge/kvs.
  *
- * Provides jest.fn() stubs for kvs.get() and kvs.set() so tests
+ * Provides jest.fn() stubs for kvs.get(), kvs.set(), kvs.delete(),
+ * kvs.getSecret(), kvs.setSecret(), and kvs.deleteSecret() so tests
  * can run without Forge infrastructure.
  */
 const kvs = {
   get: jest.fn(),
   set: jest.fn(),
   delete: jest.fn(),
+  getSecret: jest.fn(),
+  setSecret: jest.fn(),
+  deleteSecret: jest.fn(),
 };
 
 export { kvs };

@@ -255,4 +255,4 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 
 ## License
 
-MIT
+GNU Affero General Public License v3.0 (AGPL-3.0-or-later). See [LICENSE](LICENSE) for the full text.
