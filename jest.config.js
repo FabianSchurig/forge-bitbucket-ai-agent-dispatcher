@@ -34,7 +34,6 @@ module.exports = {
         '^@forge/api$': '<rootDir>/src/__mocks__/@forge/api.ts',
         '^@forge/react$': '<rootDir>/src/__mocks__/@forge/react.tsx',
         '^@forge/bridge$': '<rootDir>/src/__mocks__/@forge/bridge.ts',
-        '^@forge/egress$': '<rootDir>/src/__mocks__/@forge/egress.ts',
       },
     },
   ],

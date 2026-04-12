@@ -11,8 +11,7 @@ import ForgeReconciler, {
   Text,
   Select,
 } from '@forge/react';
-import { invoke, view, permissions } from '@forge/bridge';
-import { EgressType } from '@forge/egress';
+import { invoke, view } from '@forge/bridge';
 import { AppConfig, DEFAULT_CONFIG } from './types';
 import type { CIProviderType } from './interfaces/CIProvider';
 
@@ -95,54 +94,19 @@ export const SettingsForm = () => {
     setSaved(false);
     setErrorMsg(null);
 
-    // When Jenkins is selected and a URL has been provided, we must request
-    // Customer-Managed Egress permission for that specific domain before saving.
-    // This triggers a native Atlassian modal asking the workspace admin to
-    // approve the outbound connection.  Only workspace administrators can grant
-    // this; if the call is rejected (denied or user lacks permission) we show
-    // a helpful message and abort the save.
+    // When Jenkins is selected and a URL has been provided, validate the URL
+    // format before saving.  Once Customer-Managed Egress reaches preview we
+    // can add dynamic domain approval here; for now the manifest wildcard ('*')
+    // allows outbound requests to any host.
     if (formValues.ciType === 'JENKINS' && formValues.jenkinsUrl) {
       try {
-        // Extract just the hostname (e.g. "jenkins.example.com") from the URL
-        // so we request the narrowest possible egress scope.
-        let hostname: string;
-        try {
-          hostname = new URL(formValues.jenkinsUrl).hostname;
-          if (!hostname) {
-            throw new Error('empty hostname');
-          }
-        } catch {
-          setErrorMsg(
-            'Invalid Jenkins URL format. Please enter a valid URL (e.g., https://jenkins.example.com).',
-          );
-          return;
+        const hostname = new URL(formValues.jenkinsUrl).hostname;
+        if (!hostname) {
+          throw new Error('empty hostname');
         }
-
-        await permissions.egress.set({
-          egresses: [
-            {
-              // A stable identifier for this egress group; used as a storage key
-              // by the Forge platform.
-              key: 'jenkins-instance',
-              description: 'Jenkins CI server for AI Agent Dispatcher',
-              configured: [
-                {
-                  domain: hostname,
-                  // FetchBackendSide means Forge's server-side proxy makes the
-                  // outbound HTTP request on behalf of the app backend.
-                  type: [EgressType.FetchBackendSide],
-                },
-              ],
-            },
-          ],
-        });
-      } catch (egressErr: unknown) {
-        // The egress set() rejects when the user is not a workspace admin, or
-        // when the admin clicks "Deny" in the consent modal.
-        console.error('Egress permission request failed or was denied:', egressErr);
+      } catch {
         setErrorMsg(
-          'Jenkins URL approval failed. Please ensure you are a Workspace Administrator ' +
-          'and approve the URL in the consent dialog.',
+          'Invalid Jenkins URL format. Please enter a valid URL (e.g., https://jenkins.example.com).',
         );
         return;
       }
@@ -274,14 +238,6 @@ export const SettingsForm = () => {
                 Jenkins API tokens are stored using Forge Encrypted Storage and are never visible in plain text.
                 Use the Forge CLI to set the token: forge storage set-secret --key jenkins-api-token --value YOUR_BASE64_TOKEN
                 The token value should be a Base64-encoded username:apiToken string.
-              </Text>
-            </SectionMessage>
-
-            <SectionMessage appearance="information" title="Egress Permission Required">
-              <Text>
-                Saving a Jenkins URL triggers an Atlassian approval dialog that allows the app to
-                connect to your Jenkins server. Only Workspace Administrators can approve this request.
-                If you are not an admin, ask your workspace administrator to save these settings.
               </Text>
             </SectionMessage>
           </FormSection>
