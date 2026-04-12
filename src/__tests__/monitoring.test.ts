@@ -114,6 +114,14 @@ describe('monitoring', () => {
       await expect(recordDispatchEvent(event)).resolves.toBeUndefined();
     });
 
+    it('skips recording when projectUuid is empty', async () => {
+      const event = makeEvent({ projectUuid: '' });
+      await recordDispatchEvent(event);
+
+      // No storage writes should have been made.
+      expect(mockSet).not.toHaveBeenCalled();
+    });
+
     it('stores event with buildUrl when provided', async () => {
       const event = makeEvent({ buildUrl: 'https://example.com/pipeline/1' });
       await recordDispatchEvent(event);

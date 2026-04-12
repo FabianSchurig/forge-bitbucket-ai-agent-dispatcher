@@ -60,8 +60,14 @@ const MAX_EVENTS = 50;
  */
 export async function recordDispatchEvent(event: DispatchEvent): Promise<void> {
   try {
-    const project = event.projectUuid || 'global';
-    const key = eventKey(project, event.timestamp);
+    // Events without a project scope are not recorded — the monitoring log
+    // is always project-scoped to prevent cross-project metadata leaks.
+    if (!event.projectUuid) {
+      console.warn('Monitoring: skipping event without projectUuid.');
+      return;
+    }
+
+    const key = eventKey(event.projectUuid, event.timestamp);
 
     // 1. Write the event itself — this is an atomic set, no race condition.
     await kvs.set(key, event);
@@ -69,12 +75,14 @@ export async function recordDispatchEvent(event: DispatchEvent): Promise<void> {
     // 2. Update the index (bounded FIFO list of event keys).
     //    A concurrent update could lose this index entry, but the event
     //    data is already safely persisted above.
-    const idx = indexKey(project);
+    const idx = indexKey(event.projectUuid);
     const existing = (await kvs.get<string[]>(idx)) ?? [];
     const updated = [key, ...existing].slice(0, MAX_EVENTS);
 
     // If the index shrank, delete the oldest event keys that were trimmed.
-    const removed = existing.filter((k) => !updated.includes(k));
+    // Use a Set for O(n) lookup instead of O(n²) includes().
+    const updatedSet = new Set(updated);
+    const removed = existing.filter((k) => !updatedSet.has(k));
     await kvs.set(idx, updated);
 
     // Best-effort cleanup of old event keys.
