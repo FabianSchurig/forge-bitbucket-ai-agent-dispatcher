@@ -3,13 +3,14 @@ name: Deploy Atlassian Forge App
 on:
   push:
     branches:
-      - '**' # Lint & test run on every branch push for pre-merge validation
-  pull_request: # Also run on pull requests to validate changes before merge
+      - main # Only push to main triggers the workflow (avoids double-run on PR branches)
+  pull_request: # PRs trigger the full pipeline for pre-merge validation
 
-# Prevent overlapping deploys to the shared development environment.
-# Only one deploy job runs at a time; newer pushes cancel in-progress ones.
+# Use a per-ref/PR concurrency group so:
+# - Rapid pushes to the same branch/PR cancel the previous in-progress run (good)
+# - Different PRs run in parallel and do NOT cancel each other (good)
 concurrency:
-  group: forge-deploy-development
+  group: forge-deploy-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -39,11 +40,10 @@ jobs:
     name: Deploy & Install (Development)
     runs-on: ubuntu-latest
     needs: test # Only deploy when tests pass
-    # Deploy on every branch push and on pull requests from the same repository
-    # so changes can be validated in the shared development environment before
-    # merging. Fork PRs are excluded because GitHub does not expose secrets to
-    # workflows triggered by untrusted forks, which would cause the deploy step
-    # to fail. The install --upgrade step is gated to main only (see below).
+    # Deploy on push to main and on pull requests from the same repository.
+    # Fork PRs are excluded because GitHub does not expose secrets to workflows
+    # triggered by untrusted forks, which would cause forge deploy to fail.
+    # Push events here are always main (see the on.push.branches filter above).
     if: |
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
