@@ -132,6 +132,10 @@ jest.mock('@forge/react', () => {
       }),
     Lozenge: ({ children }: { children?: React.ReactNode }) =>
       actual.createElement('span', { 'data-testid': 'lozenge' }, children),
+    HelperMessage: ({ children }: { children?: React.ReactNode }) =>
+      actual.createElement('small', { 'data-testid': 'helper-message' }, children),
+    Inline: ({ children }: { children?: React.ReactNode }) =>
+      actual.createElement('div', { 'data-testid': 'inline' }, children),
   };
 });
 
@@ -464,5 +468,51 @@ describe('SettingsForm', () => {
     await waitFor(() => {
       expect(screen.getByText(/no dispatch events have been recorded/i)).toBeInTheDocument();
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // UX/UI improvements: introductory description and helper messages
+  // ---------------------------------------------------------------------------
+
+  it('renders an introductory "How it works" section explaining the app', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // The intro section message should describe the trigger workflow.
+    // The mocked SectionMessage exposes the title via a `data-title` attribute.
+    expect(document.querySelector('[data-title="How it works"]')).toBeInTheDocument();
+    // It should mention the trigger keyword/comment mechanism.
+    expect(screen.getByText(/pull request comment/i)).toBeInTheDocument();
+  });
+
+  it('renders helper text below the trigger keyword field', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // Each helper message clarifies the field's purpose.
+    const helpers = screen.getAllByTestId('helper-message');
+    expect(helpers.length).toBeGreaterThan(0);
+    // At least one helper mentions the keyword purpose.
+    const helperTexts = helpers.map((h) => h.textContent ?? '');
+    expect(helperTexts.some((t) => /keyword/i.test(t))).toBe(true);
+  });
+
+  it('renders a description under the Monitoring section explaining its purpose', async () => {
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // The monitoring section should explain what events are recorded.
+    expect(
+      screen.getByText(/records each dispatch event/i),
+    ).toBeInTheDocument();
   });
 });
