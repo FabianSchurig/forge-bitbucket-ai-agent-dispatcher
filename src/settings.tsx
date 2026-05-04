@@ -199,7 +199,8 @@ export const SettingsForm = () => {
           />
           <HelperMessage>
             The keyword that must appear in a PR comment to trigger a build
-            (case-insensitive). Mention-style keywords like "@agent" work well.
+            (case-sensitive). Mention-style keywords like "@agent" work well;
+            use the exact capitalization you expect in comments.
           </HelperMessage>
 
           <Label labelFor="ciType">CI/CD Provider</Label>
