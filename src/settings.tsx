@@ -4,6 +4,8 @@ import ForgeReconciler, {
   DynamicTable,
   Form,
   FormSection,
+  HelperMessage,
+  Inline,
   Label,
   Lozenge,
   SectionMessage,
@@ -157,7 +159,21 @@ export const SettingsForm = () => {
 
   return (
     <Stack space="space.200">
-      <Heading as="h2">AI Agent Dispatcher Settings</Heading>
+      {/*
+        The Forge page chrome already shows "AI Agent Dispatcher Settings" as
+        the page title — repeating it here would be redundant. Instead, lead
+        with a short, friendly explainer so admins immediately understand what
+        the app does and how to use it.
+      */}
+      <SectionMessage appearance="information" title="How it works">
+        <Text>
+          The AI Agent Dispatcher listens for a trigger keyword in pull request
+          comments and starts a CI/CD build that runs your AI agent against the
+          PR. Configure the trigger and your provider below, then comment the
+          keyword (for example, "@agent please review") on any PR in this
+          project to dispatch a run.
+        </Text>
+      </SectionMessage>
 
       {errorMsg && (
         <SectionMessage appearance="error" title="Error">
@@ -181,6 +197,10 @@ export const SettingsForm = () => {
             placeholder="@agent"
             onChange={handleChange('triggerKeyword')}
           />
+          <HelperMessage>
+            The keyword that must appear in a PR comment to trigger a build
+            (case-insensitive). Mention-style keywords like "@agent" work well.
+          </HelperMessage>
 
           <Label labelFor="ciType">CI/CD Provider</Label>
           <Select
@@ -190,6 +210,10 @@ export const SettingsForm = () => {
             value={CI_PROVIDER_OPTIONS.find((o) => o.value === formValues.ciType)}
             onChange={handleCiTypeChange}
           />
+          <HelperMessage>
+            Choose where the AI agent build should run. The fields below change
+            to match the selected provider.
+          </HelperMessage>
         </FormSection>
 
         {/* Bitbucket Pipelines-specific settings */}
@@ -205,6 +229,10 @@ export const SettingsForm = () => {
               placeholder="Leave blank to use the current workspace"
               onChange={handleChange('hubWorkspace')}
             />
+            <HelperMessage>
+              Workspace that owns the hub repository. Leave blank to reuse the
+              workspace this PR lives in.
+            </HelperMessage>
 
             <Label labelFor="hubRepository">Hub Repository Slug</Label>
             <Textfield
@@ -214,6 +242,10 @@ export const SettingsForm = () => {
               placeholder="ai-agent-hub"
               onChange={handleChange('hubRepository')}
             />
+            <HelperMessage>
+              Slug of the central repository whose pipeline runs the AI agent
+              for every dispatched PR.
+            </HelperMessage>
 
             <Label labelFor="hubPipeline">Hub Pipeline Name</Label>
             <Textfield
@@ -223,6 +255,10 @@ export const SettingsForm = () => {
               placeholder="custom: run-agent-session"
               onChange={handleChange('hubPipeline')}
             />
+            <HelperMessage>
+              Name of the custom pipeline defined in the hub repository's
+              bitbucket-pipelines.yml (e.g. "custom: run-agent-session").
+            </HelperMessage>
 
             <Label labelFor="pipelineBranch">Pipeline Branch Name</Label>
             <Textfield
@@ -232,6 +268,10 @@ export const SettingsForm = () => {
               placeholder="main"
               onChange={handleChange('pipelineBranch')}
             />
+            <HelperMessage>
+              Branch of the hub repository to run the pipeline from. Most teams
+              use "main".
+            </HelperMessage>
           </FormSection>
         )}
 
@@ -248,6 +288,9 @@ export const SettingsForm = () => {
               placeholder="https://jenkins.example.com"
               onChange={handleChange('jenkinsUrl')}
             />
+            <HelperMessage>
+              Base URL of your Jenkins server, including the scheme (https://).
+            </HelperMessage>
 
             <Label labelFor="jenkinsJobPath">Jenkins Job Path</Label>
             <Textfield
@@ -257,6 +300,10 @@ export const SettingsForm = () => {
               placeholder="job/my-folder/job/my-job"
               onChange={handleChange('jenkinsJobPath')}
             />
+            <HelperMessage>
+              Path to the job that runs the AI agent, relative to the Jenkins
+              base URL (e.g. "job/my-folder/job/my-job").
+            </HelperMessage>
 
             <SectionMessage appearance="warning" title="Security Notice">
               <Text>
@@ -275,17 +322,26 @@ export const SettingsForm = () => {
 
       {/* Monitoring section — shows recent dispatch events when enabled. */}
       <Heading as="h2">Monitoring</Heading>
+      <Text>
+        Optional: keep an audit trail of every dispatch attempt for this
+        project. Useful while rolling the app out or debugging trigger
+        comments.
+      </Text>
 
       <FormSection>
-        <Label labelFor="monitoringEnabled">Enable Monitoring</Label>
-        <Toggle
-          id="monitoringEnabled"
-          isChecked={formValues.monitoringEnabled}
-          onChange={handleMonitoringToggle}
-        />
-        <Text>
-          When enabled, the dispatcher records each event (success, failure, skipped) for review here.
-        </Text>
+        <Inline space="space.100" alignBlock="center">
+          <Toggle
+            id="monitoringEnabled"
+            isChecked={formValues.monitoringEnabled}
+            onChange={handleMonitoringToggle}
+          />
+          <Label labelFor="monitoringEnabled">Enable Monitoring</Label>
+        </Inline>
+        <HelperMessage>
+          When on, the dispatcher records each dispatch event (success,
+          failure, or skipped). The most recent events appear in a table
+          below once they start coming in.
+        </HelperMessage>
       </FormSection>
 
       {formValues.monitoringEnabled && monitoringEvents.length > 0 && (
