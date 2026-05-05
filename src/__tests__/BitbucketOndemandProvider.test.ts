@@ -132,8 +132,8 @@ describe('BitbucketOndemandProvider', () => {
       expect(url).toContain('/2.0/repositories/my-workspace/spoke-repo/pipelines/');
       expect(url).toContain('?');
       expect(url).toContain('target.ref_type=branch');
-      // Mock route() doesn't encode (real Forge does), so plain branch shows up.
-      expect(url).toContain('target.ref_name=feature/cool-stuff');
+      // URLSearchParams encodes the branch slash as %2F.
+      expect(url).toContain('target.ref_name=feature%2Fcool-stuff');
       expect(url).toContain('target.selector.type=default');
       expect(url).toContain('variables.SOURCE_WORKSPACE=my-workspace');
       expect(url).toContain('variables.PR_ID=7');

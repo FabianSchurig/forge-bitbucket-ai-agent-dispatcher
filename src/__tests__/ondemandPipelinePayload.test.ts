@@ -64,7 +64,7 @@ describe('buildOndemandRequest', () => {
   it('falls back to PR source branch when ondemandTargetBranch is blank', () => {
     const result = buildOndemandRequest(makeContext(), makeConfig());
     expect(result.targetBranch).toBe('feature/cool-stuff');
-    expect(result.queryString).toContain('target.ref_name=feature%2Fcool-stuff');
+    expect(result.queryParams.toString()).toContain('target.ref_name=feature%2Fcool-stuff');
   });
 
   it('uses ondemandTargetBranch override when set', () => {
@@ -96,14 +96,15 @@ describe('buildOndemandRequest', () => {
   // -- Query string format -------------------------------------------------
 
   it('includes the standard target.* parameters', () => {
-    const { queryString } = buildOndemandRequest(makeContext(), makeConfig());
+    const { queryParams } = buildOndemandRequest(makeContext(), makeConfig());
+    const queryString = queryParams.toString();
     expect(queryString).toContain('target.ref_type=branch');
     expect(queryString).toContain('target.selector.type=default');
-    expect(queryString.startsWith('?')).toBe(true);
   });
 
   it('emits all six pipeline variables using "variables.<KEY>=<value>" notation', () => {
-    const { queryString } = buildOndemandRequest(makeContext(), makeConfig());
+    const { queryParams } = buildOndemandRequest(makeContext(), makeConfig());
+    const queryString = queryParams.toString();
     expect(queryString).toContain('variables.SOURCE_WORKSPACE=my-workspace');
     expect(queryString).toContain('variables.SOURCE_REPO=spoke-repo');
     expect(queryString).toContain('variables.PR_ID=7');
@@ -115,12 +116,12 @@ describe('buildOndemandRequest', () => {
   });
 
   it('safely encodes Unicode characters in variable values', () => {
-    const { queryString } = buildOndemandRequest(
+    const { queryParams } = buildOndemandRequest(
       makeContext({ commentText: 'héllo 🚀' }),
       makeConfig(),
     );
     // encoded form of "héllo 🚀": %C3%A9 for 'é', '+' for space, %F0%9F%9A%80 for 🚀
-    expect(queryString).toContain('variables.COMMENT_TEXT=h%C3%A9llo+%F0%9F%9A%80');
+    expect(queryParams.toString()).toContain('variables.COMMENT_TEXT=h%C3%A9llo+%F0%9F%9A%80');
   });
 
   // -- YAML body -----------------------------------------------------------

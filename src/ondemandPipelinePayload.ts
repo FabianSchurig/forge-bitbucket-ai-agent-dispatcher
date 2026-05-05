@@ -32,12 +32,14 @@ export interface OndemandRequest {
   /** YAML body to POST as the request body (Content-Type: application/yaml). */
   yamlBody: string;
   /**
-   * Query string (including the leading '?') with the target selection and
-   * pipeline variables.  Always non-empty because target.ref_type and
-   * target.ref_name are required.  Built from validated fields using
-   * URLSearchParams so values are safely percent-encoded.
+   * URLSearchParams carrying the target selection and pipeline variables.
+   * The Forge `route` tag accepts a URLSearchParams substitution natively
+   * and percent-encodes its serialised form once, so callers can embed it
+   * directly with `route\`/.../pipelines/?${queryParams}\`` without
+   * re-encoding (and without any drift between the helper's encoding and
+   * the provider's URL construction).
    */
-  queryString: string;
+  queryParams: URLSearchParams;
 }
 
 /**
@@ -55,9 +57,14 @@ const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 /**
  * Parses an "ondemandTargetRepo" config value of the form "{ws}/{repo}"
- * into its two parts.  Throws CIProviderError on invalid input.
+ * into its two parts and validates each slug against the strict allowlist.
+ * Throws CIProviderError on invalid input.
+ *
+ * Exported so other modules (e.g. BitbucketOndemandProvider.getBuildStatus)
+ * can reuse the same parsing + validation rules and keep error messages
+ * consistent across all on-demand code paths.
  */
-function parseTargetRepo(raw: string): { workspace: string; repoSlug: string } {
+export function parseTargetRepo(raw: string): { workspace: string; repoSlug: string } {
   const parts = raw.split('/').filter((p) => p.length > 0);
   if (parts.length !== 2) {
     throw new CIProviderError(
@@ -167,6 +174,6 @@ export function buildOndemandRequest(
     targetRepoSlug,
     targetBranch,
     yamlBody: config.ondemandYamlTemplate,
-    queryString: `?${params.toString()}`,
+    queryParams: params,
   };
 }

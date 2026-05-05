@@ -21,7 +21,7 @@ import api, { route } from '@forge/api';
 import type { CIProvider, BuildPayload, BuildResult } from '../interfaces/CIProvider';
 import { CIProviderError } from '../interfaces/CIProviderError';
 import type { AppConfig, DispatchContext } from '../types';
-import { buildOndemandRequest } from '../ondemandPipelinePayload';
+import { buildOndemandRequest, parseTargetRepo } from '../ondemandPipelinePayload';
 
 /** Provider name used for CIProviderError messages. */
 const PROVIDER_NAME = 'Bitbucket Pipelines (on-demand)';
@@ -41,25 +41,17 @@ export class BitbucketOndemandProvider implements CIProvider {
   async triggerBuild(_payload: BuildPayload, context: DispatchContext): Promise<BuildResult> {
     // Build + validate the on-demand request.  The helper throws
     // CIProviderError on invalid slug/branch values before we ever touch
-    // the network.
+    // the network, and produces the URLSearchParams we embed below so URL
+    // construction lives in exactly one place (no drift between the
+    // helper's encoding and the provider's URL building).
     const request = buildOndemandRequest(context, this.config);
 
     try {
-      // Construct the URL using the route tag so each interpolated value is
-      // properly URI-encoded by Forge.  The path uses validated workspace/
-      // repo slugs; the query string uses one substitution per variable so
-      // route can encode commentText/branches with arbitrary characters.
-      // The template literal spans multiple lines for readability.
-      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines/?\
-target.ref_type=branch\
-&target.ref_name=${request.targetBranch}\
-&target.selector.type=default\
-&variables.SOURCE_WORKSPACE=${context.workspace}\
-&variables.SOURCE_REPO=${context.repoSlug}\
-&variables.PR_ID=${String(context.prId)}\
-&variables.SOURCE_BRANCH=${context.sourceBranch}\
-&variables.COMMENT_TEXT=${context.commentText}\
-&variables.COMMENT_AUTHOR=${context.commentAuthor}`;
+      // The Forge `route` tag accepts URLSearchParams as a substitution and
+      // serialises it into a properly-encoded query string exactly once —
+      // so we pass `request.queryParams` directly instead of re-encoding
+      // the variables ourselves.
+      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines/?${request.queryParams}`;
 
       const response = await api.asApp().requestBitbucket(url, {
         method: 'POST',
@@ -123,16 +115,11 @@ target.ref_type=branch\
       );
     }
 
-    // Reuse the helper's parsing/validation so we never splice unsafe
-    // values into the URL.
-    const parts = this.config.ondemandTargetRepo.trim().split('/').filter((p) => p.length > 0);
-    if (parts.length !== 2) {
-      throw new CIProviderError(
-        PROVIDER_NAME,
-        `Invalid target repository "${this.config.ondemandTargetRepo}". Expected "workspace/repo".`,
-      );
-    }
-    const [targetWorkspace, targetRepoSlug] = parts;
+    // Reuse the shared parseTargetRepo() helper so getBuildStatus enforces
+    // the exact same slug allowlist + error messages as triggerBuild().
+    const { workspace: targetWorkspace, repoSlug: targetRepoSlug } = parseTargetRepo(
+      this.config.ondemandTargetRepo.trim(),
+    );
 
     const response = await api
       .asApp()

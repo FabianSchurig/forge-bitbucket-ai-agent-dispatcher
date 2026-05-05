@@ -143,8 +143,10 @@ export const SettingsForm = () => {
 
     // For on-demand pipelines, run a lightweight YAML sanity check so we
     // don't ship an obviously broken pipeline definition to Bitbucket.
-    // Real YAML parsing happens server-side; this only catches the most
-    // common mistakes (empty body, missing top-level `pipelines:` key).
+    // The provider posts the YAML verbatim — Bitbucket parses it server-side
+    // when the pipeline runs, so this client-side check only catches the
+    // most common mistakes (empty body, missing top-level `pipelines:` key)
+    // before the user discovers them in a failed pipeline run.
     if (formValues.ciType === 'BITBUCKET_ONDEMAND') {
       const yaml = (formValues.ondemandYamlTemplate ?? '').trim();
       if (!yaml) {
