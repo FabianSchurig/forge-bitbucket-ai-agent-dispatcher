@@ -49,7 +49,17 @@ export class BitbucketOndemandProvider implements CIProvider {
       // properly URI-encoded by Forge.  The path uses validated workspace/
       // repo slugs; the query string uses one substitution per variable so
       // route can encode commentText/branches with arbitrary characters.
-      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines/?target.ref_type=branch&target.ref_name=${request.targetBranch}&target.selector.type=default&variables.SOURCE_WORKSPACE=${context.workspace}&variables.SOURCE_REPO=${context.repoSlug}&variables.PR_ID=${String(context.prId)}&variables.SOURCE_BRANCH=${context.sourceBranch}&variables.COMMENT_TEXT=${context.commentText}&variables.COMMENT_AUTHOR=${context.commentAuthor}`;
+      // The template literal spans multiple lines for readability.
+      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines/?\
+target.ref_type=branch\
+&target.ref_name=${request.targetBranch}\
+&target.selector.type=default\
+&variables.SOURCE_WORKSPACE=${context.workspace}\
+&variables.SOURCE_REPO=${context.repoSlug}\
+&variables.PR_ID=${String(context.prId)}\
+&variables.SOURCE_BRANCH=${context.sourceBranch}\
+&variables.COMMENT_TEXT=${context.commentText}\
+&variables.COMMENT_AUTHOR=${context.commentAuthor}`;
 
       const response = await api.asApp().requestBitbucket(url, {
         method: 'POST',
