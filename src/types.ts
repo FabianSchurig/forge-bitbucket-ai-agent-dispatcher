@@ -28,6 +28,35 @@ export interface AppConfig {
   /** Branch in the hub repository where the pipeline definition exists. */
   pipelineBranch: string;
 
+  // -- Bitbucket on-demand pipelines settings -------------------------------
+
+  /**
+   * Optional override for the target repository when running an on-demand
+   * pipeline.  Format: "{workspaceSlug}/{repoSlug}".  When empty, the
+   * pipeline runs against the spoke repository where the triggering PR
+   * comment was posted (no central hub repo required).
+   *
+   * Only used when ciType is 'BITBUCKET_ONDEMAND'.
+   */
+  ondemandTargetRepo: string;
+  /**
+   * Optional override for the branch the on-demand pipeline runs against.
+   * When empty, the pipeline runs against the source branch of the PR.
+   *
+   * Only used when ciType is 'BITBUCKET_ONDEMAND'.
+   */
+  ondemandTargetBranch: string;
+  /**
+   * The YAML pipeline definition that is POSTed to the on-demand pipelines
+   * API as the request body.  Pipeline variables sent via query parameters
+   * (SOURCE_WORKSPACE, SOURCE_REPO, PR_ID, SOURCE_BRANCH, COMMENT_TEXT,
+   * COMMENT_AUTHOR) are exposed to the steps as ordinary environment
+   * variables and can be referenced as $VARIABLE_NAME.
+   *
+   * Only used when ciType is 'BITBUCKET_ONDEMAND'.
+   */
+  ondemandYamlTemplate: string;
+
   // -- Jenkins settings -----------------------------------------------------
 
   /**
@@ -50,6 +79,30 @@ export interface AppConfig {
   monitoringEnabled: boolean;
 }
 
+/**
+ * Default YAML body for on-demand pipelines.
+ *
+ * Mirrors the canonical "run-agent-session" custom pipeline that the legacy
+ * hub-repo flow expects, so admins switching from the hub-repo provider get
+ * the same out-of-the-box behaviour without provisioning a central repo.
+ *
+ * The variables referenced as $VARIABLES are populated via query parameters
+ * sent alongside this body — see src/ondemandPipelinePayload.ts.
+ */
+export const DEFAULT_ONDEMAND_YAML = `pipelines:
+  default:
+    - step:
+        name: Run AI agent session
+        image: atlassian/default-image:5
+        script:
+          - echo "Running AI agent for PR #$PR_ID on $SOURCE_WORKSPACE/$SOURCE_REPO"
+          - echo "Source branch: $SOURCE_BRANCH"
+          - echo "Triggered by: $COMMENT_AUTHOR"
+          - echo "Comment text: $COMMENT_TEXT"
+          # Replace the line below with your agent invocation.
+          - echo "(no agent command configured — edit the on-demand YAML in project settings)"
+`;
+
 /** Default configuration values. */
 export const DEFAULT_CONFIG: AppConfig = {
   triggerKeyword: '@agent',
@@ -58,6 +111,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   hubRepository: 'ai-agent-hub',
   hubPipeline: 'custom: run-agent-session',
   pipelineBranch: 'main',
+  ondemandTargetRepo: '',
+  ondemandTargetBranch: '',
+  ondemandYamlTemplate: DEFAULT_ONDEMAND_YAML,
   jenkinsUrl: '',
   jenkinsJobPath: '',
   monitoringEnabled: false,

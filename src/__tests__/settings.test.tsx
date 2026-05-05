@@ -91,6 +91,27 @@ jest.mock('@forge/react', () => {
         placeholder,
         onChange,
       }),
+    TextArea: ({
+      id,
+      name,
+      value,
+      placeholder,
+      onChange,
+    }: {
+      id?: string;
+      name?: string;
+      value?: string;
+      placeholder?: string;
+      onChange?: (e: unknown) => void;
+    }) =>
+      actual.createElement('textarea', {
+        id,
+        name,
+        value: value ?? '',
+        placeholder,
+        onChange,
+        'data-testid': `textarea-${id ?? name}`,
+      }),
     Select: ({
       inputId,
       name,
@@ -514,5 +535,118 @@ describe('SettingsForm', () => {
     expect(
       screen.getByText(/records each dispatch event/i),
     ).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bitbucket on-demand pipelines tests
+  // ---------------------------------------------------------------------------
+
+  it('shows on-demand fields when ciType is BITBUCKET_ONDEMAND', async () => {
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
+        ...DEFAULT_CONFIG,
+        ciType: 'BITBUCKET_ONDEMAND',
+        ondemandTargetRepo: '',
+        ondemandTargetBranch: '',
+        ondemandYamlTemplate: 'pipelines:\n  default:\n    - step:\n        script:\n          - echo hi\n',
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    render(<SettingsForm />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('@agent')).toBeInTheDocument();
+    });
+
+    // On-demand-specific inputs should be present.
+    expect(screen.getByPlaceholderText(/leave blank to run in/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/leave blank to use the pr source branch/i)).toBeInTheDocument();
+    expect(screen.getByTestId('textarea-ondemandYamlTemplate')).toBeInTheDocument();
+
+    // Bitbucket Pipelines hub-repo fields should NOT be visible.
+    expect(screen.queryByPlaceholderText('ai-agent-hub')).not.toBeInTheDocument();
+  });
+
+  it('blocks save and shows an error when on-demand YAML is empty', async () => {
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
+        ...DEFAULT_CONFIG,
+        ciType: 'BITBUCKET_ONDEMAND',
+        ondemandYamlTemplate: '',
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/yaml pipeline definition cannot be empty/i)).toBeInTheDocument();
+    });
+    const saveCalls = mockInvoke.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'saveSettings',
+    );
+    expect(saveCalls).toHaveLength(0);
+  });
+
+  it('blocks save and shows an error when on-demand YAML lacks "pipelines:" key', async () => {
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
+        ...DEFAULT_CONFIG,
+        ciType: 'BITBUCKET_ONDEMAND',
+        ondemandYamlTemplate: 'not-a-pipeline-definition: true\n',
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/must contain a top-level "pipelines:"/i).length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it('saves on-demand settings when YAML contains a pipelines: key', async () => {
+    mockInvoke.mockImplementation((key: string) => {
+      if (key === 'getSettings') return Promise.resolve({
+        ...DEFAULT_CONFIG,
+        ciType: 'BITBUCKET_ONDEMAND',
+        ondemandYamlTemplate:
+          'pipelines:\n  default:\n    - step:\n        script:\n          - echo hi\n',
+      });
+      if (key === 'getMonitoringEvents') return Promise.resolve([]);
+      if (key === 'saveSettings') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = render(<SettingsForm />);
+    await waitFor(() => screen.getByPlaceholderText('@agent'));
+
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText(/saved successfully/i)).toBeInTheDocument());
   });
 });

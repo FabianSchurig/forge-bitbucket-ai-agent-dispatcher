@@ -12,6 +12,7 @@ import ForgeReconciler, {
   Stack,
   Heading,
   Textfield,
+  TextArea,
   Text,
   Select,
   Toggle,
@@ -31,6 +32,7 @@ type ForgeSelectEvent = { value: string; label: string };
 /** Available CI provider options for the dropdown. */
 const CI_PROVIDER_OPTIONS: Array<{ label: string; value: CIProviderType }> = [
   { label: 'Bitbucket Pipelines', value: 'BITBUCKET_PIPELINES' },
+  { label: 'Bitbucket Pipelines (on-demand)', value: 'BITBUCKET_ONDEMAND' },
   { label: 'Jenkins', value: 'JENKINS' },
 ];
 
@@ -139,6 +141,27 @@ export const SettingsForm = () => {
       }
     }
 
+    // For on-demand pipelines, run a lightweight YAML sanity check so we
+    // don't ship an obviously broken pipeline definition to Bitbucket.
+    // Real YAML parsing happens server-side; this only catches the most
+    // common mistakes (empty body, missing top-level `pipelines:` key).
+    if (formValues.ciType === 'BITBUCKET_ONDEMAND') {
+      const yaml = (formValues.ondemandYamlTemplate ?? '').trim();
+      if (!yaml) {
+        setErrorMsg('On-demand YAML pipeline definition cannot be empty.');
+        return;
+      }
+      // Match `pipelines:` at the start of a line (allowing the document
+      // separator `---` and blank lines above it).
+      if (!/^pipelines\s*:/m.test(yaml)) {
+        setErrorMsg(
+          'On-demand YAML must contain a top-level "pipelines:" key. ' +
+          'See the Bitbucket on-demand pipelines docs for the expected structure.',
+        );
+        return;
+      }
+    }
+
     try {
       // Pass the project UUID so settings are saved under the project-scoped key.
       await invoke('saveSettings', { config: formValues, projectUuid });
@@ -155,6 +178,7 @@ export const SettingsForm = () => {
 
   // Determine which CI provider section to show based on the selected ciType.
   const isBitbucketPipelines = formValues.ciType === 'BITBUCKET_PIPELINES';
+  const isOndemand = formValues.ciType === 'BITBUCKET_ONDEMAND';
   const isJenkins = formValues.ciType === 'JENKINS';
 
   return (
@@ -272,6 +296,64 @@ export const SettingsForm = () => {
             <HelperMessage>
               Branch of the hub repository to run the pipeline from. Most teams
               use "main".
+            </HelperMessage>
+          </FormSection>
+        )}
+
+        {/* Bitbucket on-demand pipelines settings */}
+        {isOndemand && (
+          <FormSection>
+            <Heading as="h3">Bitbucket On-Demand Pipelines Settings</Heading>
+
+            <SectionMessage appearance="information" title="No hub repository required">
+              <Text>
+                On-demand pipelines run the YAML below directly via the
+                Bitbucket Pipelines API — there is no need to maintain a
+                separate ai-agent-hub repository. The following variables are
+                available inside your steps as environment variables:
+                $SOURCE_WORKSPACE, $SOURCE_REPO, $PR_ID, $SOURCE_BRANCH,
+                $COMMENT_TEXT, $COMMENT_AUTHOR.
+              </Text>
+            </SectionMessage>
+
+            <Label labelFor="ondemandTargetRepo">Target Repository</Label>
+            <Textfield
+              id="ondemandTargetRepo"
+              name="ondemandTargetRepo"
+              value={formValues.ondemandTargetRepo}
+              placeholder="Leave blank to run in the PR's repository"
+              onChange={handleChange('ondemandTargetRepo')}
+            />
+            <HelperMessage>
+              Optional override of the form "workspace/repo". When blank, the
+              on-demand pipeline runs in the spoke repository where the PR
+              comment was posted.
+            </HelperMessage>
+
+            <Label labelFor="ondemandTargetBranch">Target Branch</Label>
+            <Textfield
+              id="ondemandTargetBranch"
+              name="ondemandTargetBranch"
+              value={formValues.ondemandTargetBranch}
+              placeholder="Leave blank to use the PR source branch"
+              onChange={handleChange('ondemandTargetBranch')}
+            />
+            <HelperMessage>
+              Optional override of the branch the pipeline runs against. When
+              blank, the source branch of the triggering PR is used.
+            </HelperMessage>
+
+            <Label labelFor="ondemandYamlTemplate">YAML Pipeline Definition</Label>
+            <TextArea
+              id="ondemandYamlTemplate"
+              name="ondemandYamlTemplate"
+              value={formValues.ondemandYamlTemplate}
+              onChange={handleChange('ondemandYamlTemplate')}
+            />
+            <HelperMessage>
+              Raw YAML body that Bitbucket runs as the pipeline. Must contain
+              a top-level "pipelines:" key. Reference the dispatched variables
+              with $SOURCE_WORKSPACE, $PR_ID, etc.
             </HelperMessage>
           </FormSection>
         )}
