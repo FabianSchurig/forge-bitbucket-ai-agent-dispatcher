@@ -5,7 +5,7 @@ An [Atlassian Forge](https://developer.atlassian.com/platform/forge/) applicatio
 When a user posts a comment containing a configurable trigger keyword (default: `@agent`) on any Pull Request in the workspace, the app:
 
 1. Extracts the PR context (workspace, repo, branch, comment author, etc.)
-2. Uses the configured **CI/CD provider** to trigger a build (Bitbucket Pipelines or Jenkins)
+2. Uses the configured **CI/CD provider** to trigger a build (Bitbucket Pipelines, Bitbucket on-demand pipelines, or Jenkins)
 3. Passes the full PR context as build parameters so the CI environment knows which spoke to act upon
 4. Posts a friendly failure comment on the PR if the build cannot be triggered
 
@@ -23,14 +23,34 @@ Forge App (Dispatcher)
   ├─ detects trigger keyword
   ├─ fetches PR source-branch via Bitbucket API
   ├─ ProviderFactory.getProvider()          ← Factory Pattern
-  │     ├─ BitbucketPipelinesProvider       ← Strategy A
-  │     └─ JenkinsProvider                  ← Strategy B
+  │     ├─ BitbucketPipelinesProvider       ← Strategy A (hub repo + custom pipeline)
+  │     ├─ BitbucketOndemandProvider        ← Strategy B (on-demand YAML, no hub repo)
+  │     └─ JenkinsProvider                  ← Strategy C
   └─ ciProvider.triggerBuild(payload)       ← Strategy Pattern
               │
               ▼
-       CI Environment (Bitbucket Pipelines or Jenkins)
+       CI Environment (Bitbucket Pipelines, on-demand pipelines, or Jenkins)
          └─ runs the AI agent logic
 ```
+
+### Choosing a provider
+
+| Provider | Hub repo required? | YAML lives in… | Best for |
+|---|---|---|---|
+| `BITBUCKET_PIPELINES` | Yes – central `ai-agent-hub` repo with `bitbucket-pipelines.yml` | the hub repo (versioned in git) | Teams who want their pipeline definition tracked in git |
+| `BITBUCKET_ONDEMAND` | **No** – the YAML is sent in the API request | the project settings (this app) | Teams who want a one-config, no-hub-repo setup ([Bitbucket on-demand pipelines, announced 2026-04-22](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-pipelines/)) |
+| `JENKINS` | n/a – uses an existing Jenkins job | Jenkins | Teams already invested in Jenkins |
+
+For the on-demand provider, the following variables are passed as query parameters and exposed inside the running pipeline as environment variables:
+
+| Variable | Description |
+|---|---|
+| `$SOURCE_WORKSPACE` | Bitbucket workspace slug of the spoke repo |
+| `$SOURCE_REPO` | Repository slug of the spoke repo |
+| `$PR_ID` | Pull-request numeric ID |
+| `$SOURCE_BRANCH` | Source branch of the PR |
+| `$COMMENT_TEXT` | Raw text of the triggering comment |
+| `$COMMENT_AUTHOR` | Atlassian account ID of the comment author |
 
 ### Adding a New Provider
 

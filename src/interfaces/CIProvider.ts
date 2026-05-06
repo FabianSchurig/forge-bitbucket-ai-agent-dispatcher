@@ -20,7 +20,10 @@ import { DispatchContext } from '../types';
 // ---------------------------------------------------------------------------
 
 /** Discriminated union of all supported CI provider identifiers. */
-export type CIProviderType = 'BITBUCKET_PIPELINES' | 'JENKINS';
+export type CIProviderType =
+  | 'BITBUCKET_PIPELINES'
+  | 'BITBUCKET_ONDEMAND'
+  | 'JENKINS';
 
 // ---------------------------------------------------------------------------
 // Payload & result types shared across all providers.

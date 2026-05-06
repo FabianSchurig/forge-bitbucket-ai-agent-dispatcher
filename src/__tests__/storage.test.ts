@@ -195,6 +195,9 @@ describe('saveSettings (legacy global key)', () => {
       hubRepository: 'hub-repo',
       hubPipeline: 'custom: run-ai',
       pipelineBranch: 'develop',
+      ondemandTargetRepo: '',
+      ondemandTargetBranch: '',
+      ondemandYamlTemplate: '',
       jenkinsUrl: '',
       jenkinsJobPath: '',
       monitoringEnabled: false,
@@ -202,7 +205,14 @@ describe('saveSettings (legacy global key)', () => {
 
     await saveSettings(newConfig);
 
-    expect(mockStorageSet).toHaveBeenCalledWith('appConfig', newConfig);
+    // saveSettings merges with the loaded config (which falls back to
+    // DEFAULT_CONFIG when nothing is stored), so the persisted value is
+    // the merge of DEFAULT_CONFIG and our newConfig — i.e. our newConfig
+    // wins for every field it provides.
+    const [, persisted] = mockStorageSet.mock.calls[0] as [string, Record<string, unknown>];
+    Object.entries(newConfig).forEach(([key, value]) => {
+      expect(persisted[key]).toEqual(value);
+    });
   });
 
   it('writes to the legacy storage key when no projectUuid', async () => {

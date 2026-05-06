@@ -14,6 +14,7 @@ import kvs from '@forge/kvs';
 import type { CIProvider } from '../interfaces/CIProvider';
 import { CIProviderError } from '../interfaces/CIProviderError';
 import { BitbucketPipelinesProvider } from '../providers/BitbucketPipelinesProvider';
+import { BitbucketOndemandProvider } from '../providers/BitbucketOndemandProvider';
 import { JenkinsProvider } from '../providers/JenkinsProvider';
 import { getSettings } from '../storage';
 
@@ -43,6 +44,14 @@ export class ProviderFactory {
     switch (config.ciType) {
       case 'BITBUCKET_PIPELINES':
         return new BitbucketPipelinesProvider(config);
+
+      case 'BITBUCKET_ONDEMAND':
+        // On-demand pipelines need no separate hub repo and no API token —
+        // the YAML body and target selection live entirely in the project
+        // configuration.  The provider validates its inputs at request time
+        // (slug/branch allowlists) and falls back to the spoke repo when
+        // ondemandTargetRepo is blank.
+        return new BitbucketOndemandProvider(config);
 
       case 'JENKINS': {
         // The token is provisioned outside the settings UI (for example via

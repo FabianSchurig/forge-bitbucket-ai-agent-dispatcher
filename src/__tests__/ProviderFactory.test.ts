@@ -1,5 +1,6 @@
 import { ProviderFactory } from '../factories/ProviderFactory';
 import { BitbucketPipelinesProvider } from '../providers/BitbucketPipelinesProvider';
+import { BitbucketOndemandProvider } from '../providers/BitbucketOndemandProvider';
 import { JenkinsProvider } from '../providers/JenkinsProvider';
 import { CIProviderError } from '../interfaces/CIProviderError';
 import { DEFAULT_CONFIG } from '../types';
@@ -71,6 +72,16 @@ describe('ProviderFactory', () => {
     mockKvsGet.mockResolvedValue(undefined);
     const provider = await ProviderFactory.getProvider('{proj-uuid}');
     expect(provider).toBeInstanceOf(BitbucketPipelinesProvider);
+  });
+
+  it('returns a BitbucketOndemandProvider when ciType is BITBUCKET_ONDEMAND', async () => {
+    mockKvsGet.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ciType: 'BITBUCKET_ONDEMAND',
+    });
+
+    const provider = await ProviderFactory.getProvider('{proj-uuid}');
+    expect(provider).toBeInstanceOf(BitbucketOndemandProvider);
   });
 
   it('returns a JenkinsProvider when ciType is JENKINS and all config is present', async () => {
