@@ -1,0 +1,69 @@
+## ai-agent-pipe – Bitbucket Pipe metadata
+##
+## This file follows the Bitbucket Pipes specification
+## (https://support.atlassian.com/bitbucket-cloud/docs/use-bitbucket-pipes/).
+##
+## When the pipe is invoked, Bitbucket Pipelines will:
+##   1. pull the image referenced by `image`
+##   2. inject every entry under `variables` as an environment variable
+##      (we use the raw names already emitted by the Forge dispatcher, e.g.
+##      SOURCE_WORKSPACE, COMMENT_TEXT, so no translation layer is needed)
+##   3. invoke the container ENTRYPOINT (see Dockerfile -> /entrypoint.sh)
+
+name: ai-agent-pipe
+description: >-
+  Run the ai-agent-hub workflow (devcontainer build + GitHub Copilot CLI
+  agent execution) inside a Bitbucket on-demand pipeline.  Designed to be
+  invoked by the forge-bitbucket-ai-agent-dispatcher Forge app.
+
+# The image tag is rewritten by the publish workflow to a concrete semver /
+# sha tag on every push to `main` and on every GitHub Release.  The `:latest`
+# default here exists purely so the file is valid out-of-the-box; pin to a
+# semver tag in production usage.
+image: ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
+
+# Semver of the pipe itself.  Bump on every behavioural change.
+version: 0.1.0
+
+# Inputs the dispatcher (or a human operator) can supply.  Each input is
+# mapped to an env var of the same name by entrypoint.sh.
+#
+# Note: Bitbucket Pipes conventionally use UPPER_SNAKE_CASE because variables
+# are exposed as plain environment variables inside the container.  We mirror
+# the variables the Forge dispatcher already emits (see
+# src/pipelinePayload.ts) so no translation layer is needed.
+variables:
+  SOURCE_WORKSPACE:
+    description: Bitbucket workspace slug of the spoke repository.
+    required: true
+  SOURCE_REPO:
+    description: Repository slug of the spoke repository.
+    required: true
+  SOURCE_BRANCH:
+    description: Branch of the spoke repository to check out.
+    required: true
+  PR_ID:
+    description: Pull-request numeric ID that triggered the agent.
+    required: false
+    default: ""
+  COMMENT_TEXT:
+    description: Raw text of the triggering PR comment – used as the Copilot prompt.
+    required: true
+  COMMENT_AUTHOR:
+    description: Atlassian account ID of the comment author (for audit logs).
+    required: false
+    default: ""
+
+  # --- Secrets ----------------------------------------------------------
+  # These MUST be marked as "Secured" in the Bitbucket repository variables
+  # UI so they are masked in build logs and never written to disk in plain
+  # text outside of /tmp (which is tmpfs in Pipelines runners).
+  COPILOT_TOKEN:
+    description: GitHub Copilot token used by the Copilot CLI.
+    required: true
+  BB_TOKEN:
+    description: Bitbucket API token used for status/comment callbacks.
+    required: true
+  SSH_KEY:
+    description: SSH private key (PEM) used to clone the spoke repository.
+    required: true

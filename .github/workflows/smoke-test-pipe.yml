@@ -1,0 +1,150 @@
+# ---------------------------------------------------------------------------
+# Smoke test: triggers a Bitbucket on-demand pipeline using the freshly
+# published ai-agent-pipe image against a designated test target repo,
+# then polls the resulting pipeline until completion and asserts that the
+# Copilot CLI was actually invoked.
+#
+# Required repository secrets:
+#   BB_USERNAME           - Bitbucket username (for HTTP Basic auth)
+#   BB_APP_PASSWORD       - Bitbucket app password with `pipelines:write`
+#   BB_TEST_WORKSPACE     - Workspace slug owning the test target repo
+#   BB_TEST_REPO          - Repo slug of the test target repo
+#   BB_TEST_BRANCH        - Branch to run against (defaults to `main`)
+#
+# Trigger: after `Publish Pipe` succeeds on `main`, or manually.
+# ---------------------------------------------------------------------------
+name: Smoke Test Pipe
+
+on:
+  workflow_run:
+    workflows: [ "Publish Pipe" ]
+    types: [ completed ]
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to smoke-test (e.g. main, sha-abc1234, v0.1.0)'
+        required: false
+        default: 'main'
+
+# Only run if the upstream publish actually succeeded.
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger Bitbucket on-demand pipeline
+        id: trigger
+        env:
+          BB_USERNAME: ${{ secrets.BB_USERNAME }}
+          BB_APP_PASSWORD: ${{ secrets.BB_APP_PASSWORD }}
+          BB_TEST_WORKSPACE: ${{ secrets.BB_TEST_WORKSPACE }}
+          BB_TEST_REPO: ${{ secrets.BB_TEST_REPO }}
+          BB_TEST_BRANCH: ${{ secrets.BB_TEST_BRANCH }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'main' }}
+          IMAGE_REPO: ghcr.io/${{ github.repository }}/ai-agent-pipe
+        run: |
+          set -euo pipefail
+
+          # Sanity-check required secrets up-front so failures are obvious.
+          : "${BB_USERNAME:?BB_USERNAME is required}"
+          : "${BB_APP_PASSWORD:?BB_APP_PASSWORD is required}"
+          : "${BB_TEST_WORKSPACE:?BB_TEST_WORKSPACE is required}"
+          : "${BB_TEST_REPO:?BB_TEST_REPO is required}"
+          BRANCH="${BB_TEST_BRANCH:-main}"
+
+          # Compose the on-demand YAML that runs the freshly-published Pipe.
+          # The YAML is embedded directly in the API request body.
+          read -r -d '' YAML <<YAML || true
+          image: atlassian/default-image:4
+          pipelines:
+            default:
+              - step:
+                  name: ai-agent-pipe smoke test
+                  services: [ docker ]
+                  script:
+                    - export DOCKER_BUILDKIT=1
+                    - pipe: docker://${IMAGE_REPO}:${IMAGE_TAG}
+                      variables:
+                        SOURCE_WORKSPACE: "${BB_TEST_WORKSPACE}"
+                        SOURCE_REPO: "${BB_TEST_REPO}"
+                        SOURCE_BRANCH: "${BRANCH}"
+                        COMMENT_TEXT: "smoke test: respond with 'pong'"
+                        COPILOT_TOKEN: \$COPILOT_TOKEN
+                        BB_TOKEN: \$BB_TOKEN
+                        SSH_KEY: \$SSH_KEY
+          YAML
+
+          # Build the JSON request body.  Bitbucket's on-demand pipelines
+          # API accepts YAML in the `target.configuration` field.
+          BODY=$(jq -n \
+              --arg branch "$BRANCH" \
+              --arg yaml "$YAML" \
+              '{
+                  target: {
+                      ref_type: "branch",
+                      type: "pipeline_ref_target",
+                      ref_name: $branch,
+                      selector: { type: "custom" }
+                  },
+                  configuration: { source: $yaml }
+              }')
+
+          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines/"
+          RESPONSE=$(curl -fsSL \
+              -u "${BB_USERNAME}:${BB_APP_PASSWORD}" \
+              -H 'Content-Type: application/json' \
+              -X POST "$API" \
+              --data "$BODY")
+
+          PIPELINE_UUID=$(echo "$RESPONSE" | jq -r .uuid)
+          echo "Triggered pipeline: $PIPELINE_UUID"
+          echo "pipeline_uuid=$PIPELINE_UUID" >> "$GITHUB_OUTPUT"
+
+      - name: Poll pipeline until completion
+        env:
+          BB_USERNAME: ${{ secrets.BB_USERNAME }}
+          BB_APP_PASSWORD: ${{ secrets.BB_APP_PASSWORD }}
+          BB_TEST_WORKSPACE: ${{ secrets.BB_TEST_WORKSPACE }}
+          BB_TEST_REPO: ${{ secrets.BB_TEST_REPO }}
+          PIPELINE_UUID: ${{ steps.trigger.outputs.pipeline_uuid }}
+        run: |
+          set -euo pipefail
+          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines/${PIPELINE_UUID}"
+
+          # Poll for up to 20 minutes.  Devcontainer builds dominate runtime.
+          for i in $(seq 1 120); do
+              STATE=$(curl -fsSL -u "${BB_USERNAME}:${BB_APP_PASSWORD}" "$API" \
+                  | jq -r '.state.name // "UNKNOWN"')
+              echo "[$i] pipeline state: $STATE"
+              case "$STATE" in
+                  COMPLETED) break ;;
+                  *) sleep 10 ;;
+              esac
+          done
+
+          RESULT=$(curl -fsSL -u "${BB_USERNAME}:${BB_APP_PASSWORD}" "$API" \
+              | jq -r '.state.result.name // "UNKNOWN"')
+          echo "Pipeline result: $RESULT"
+
+          # Fetch the step logs and assert the Copilot invocation happened.
+          STEPS=$(curl -fsSL -u "${BB_USERNAME}:${BB_APP_PASSWORD}" \
+              "${API}/steps/" | jq -r '.values[].uuid')
+          for s in $STEPS; do
+              curl -fsSL -u "${BB_USERNAME}:${BB_APP_PASSWORD}" \
+                  "${API}/steps/${s}/log" > "/tmp/step-${s}.log"
+          done
+
+          if ! grep -q 'copilot' /tmp/step-*.log; then
+              echo "FAIL: no 'copilot' invocation found in pipeline logs." >&2
+              exit 1
+          fi
+          if [ "$RESULT" != "SUCCESSFUL" ]; then
+              echo "FAIL: pipeline ended with $RESULT." >&2
+              exit 1
+          fi
+          echo "Smoke test passed."

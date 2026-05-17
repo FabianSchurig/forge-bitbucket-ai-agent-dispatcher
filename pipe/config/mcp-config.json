@@ -1,0 +1,4 @@
+{
+    "//": "Default Model Context Protocol (MCP) configuration shipped with ai-agent-pipe.  Copied into the wrapper-devcontainer build context by ai-agent-pipe and consumed by the Copilot CLI.  The single source of truth lives here; wrapper-devcontainer/mcp-config.json is a symlink target for the devcontainer build context.",
+    "mcpServers": {}
+}

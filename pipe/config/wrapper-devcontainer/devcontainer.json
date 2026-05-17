@@ -1,0 +1,17 @@
+{
+    "//": "Wrapper devcontainer used by ai-agent-pipe to layer the GitHub Copilot CLI on top of an arbitrary target devcontainer image.  BASE_IMAGE is supplied as a build-arg by scripts/run-agent.sh.",
+    "name": "ai-agent-pipe-wrapper",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "BASE_IMAGE": "${localEnv:BASE_IMAGE}"
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+    "remoteUser": "root",
+    "containerEnv": {
+        "GH_COPILOT_NO_TELEMETRY": "1"
+    }
+}
