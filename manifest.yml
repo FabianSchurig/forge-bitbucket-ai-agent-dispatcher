@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# This Forge app is distributed under the GNU Affero General Public License v3
+# (or later). The full text of the license is available in the LICENSE file at
+# the root of this repository.
 modules:
   trigger:
     - key: pr-comment-trigger

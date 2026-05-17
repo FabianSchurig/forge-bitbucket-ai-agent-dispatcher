@@ -209,7 +209,32 @@ Add the following **Repository Secrets** under
 
 ### Production deployments
 
-To promote to production, duplicate the `deploy-and-install` job, change `-e staging` to `-e production`, and trigger it on GitHub Release tag events rather than direct pushes to `main`.
+Production deployments are handled by a separate, release-driven workflow at
+`.github/workflows/release-forge-app.yml`. It fires on **GitHub Release**
+publish events (or via manual `workflow_dispatch`) so that every production
+build is tied to a Git tag.
+
+The workflow ships the app in **two variants** from the same source tree:
+
+| Variant | Manifest difference | Intended audience |
+|---------|---------------------|-------------------|
+| `full`  | Ships `manifest.yml` as-is, including the `permissions.external.fetch.backend: ['*']` wildcard. | Teams that want the Jenkins integration. |
+| `lite`  | The `permissions.external` block is stripped by `yq` before deploy, removing the wildcard egress and therefore the Jenkins integration. | Security-conscious teams that prefer a minimum-permissions install. |
+
+The `lite` variant is deployed under a **separate Forge app id** (so it can
+be listed as its own Marketplace app), which means it requires one extra
+repository secret:
+
+| Secret | Description |
+|--------|-------------|
+| `FORGE_APP_ID_LITE` | The Forge ARI of the lite app (`ari:cloud:ecosystem::app/...`). Run `forge create` once locally to mint it. If the secret is not set, the `lite` matrix leg is skipped automatically. |
+
+To cut a production release:
+
+1. Push a tag (e.g. `v1.2.0`) and publish a GitHub Release pointing at it.
+2. The `release-forge-app.yml` workflow runs `forge lint` → `forge deploy -e production --non-interactive` for both variants in parallel, then upgrades the owning workspace installation.
+
+See the Atlassian docs on [staging and production apps](https://developer.atlassian.com/platform/forge/staging-and-production-apps/), [distributing your app](https://developer.atlassian.com/platform/forge/distribute-your-apps/), and [listing Forge apps on the Marketplace](https://developer.atlassian.com/platform/marketplace/listing-forge-apps/) for the one-off setup steps (creating the second app id, submitting each variant to the Marketplace, etc.).
 
 ---
 
@@ -247,7 +272,8 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 ├── babel.config.js
 ├── .github/
 │   └── workflows/
-│       └── deploy-forge-app.yml
+│       ├── deploy-forge-app.yml      CI: lint + test + deploy to development on every push/PR
+│       └── release-forge-app.yml     CD: deploy `full` and `lite` variants to production on release
 └── src/
     ├── index.ts              Entry point – re-exports all Forge handler functions
     ├── types.ts              Shared TypeScript interfaces and defaults
