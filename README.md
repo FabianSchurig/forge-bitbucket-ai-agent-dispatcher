@@ -216,10 +216,10 @@ build is tied to a Git tag.
 
 The workflow ships the app in **two variants** from the same source tree:
 
-| Variant | Manifest difference | Intended audience |
-|---------|---------------------|-------------------|
-| `full`  | Ships `manifest.yml` as-is, including the `permissions.external.fetch.backend: ['*']` wildcard. | Teams that want the Jenkins integration. |
-| `lite`  | The `permissions.external` block is stripped by `yq` before deploy, removing the wildcard egress and therefore the Jenkins integration. | Security-conscious teams that prefer a minimum-permissions install. |
+| Variant | Build-time differences | Intended audience |
+|---------|------------------------|-------------------|
+| `full`  | Ships `manifest.yml` as-is, including the `permissions.external.fetch.backend: ['*']` wildcard, and `JENKINS_ENABLED = true` in `src/featureFlags.ts`. | Teams that want the Jenkins integration. |
+| `lite`  | `permissions.external` is stripped from `manifest.yml` by `yq`, **and** the `JENKINS_ENABLED` compile-time flag in `src/featureFlags.ts` is flipped to `false` by `sed` so the Jenkins option is hidden from the settings UI and the backend `ProviderFactory` refuses to instantiate it. | Security-conscious teams that prefer a minimum-permissions install. |
 
 The `lite` variant is deployed under a **separate Forge app id** (so it can
 be listed as its own Marketplace app), which means it requires one extra

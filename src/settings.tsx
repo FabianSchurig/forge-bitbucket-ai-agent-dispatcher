@@ -21,6 +21,7 @@ import { invoke, view } from '@forge/bridge';
 import { AppConfig, DEFAULT_CONFIG } from './types';
 import type { DispatchEvent } from './types';
 import type { CIProviderType } from './interfaces/CIProvider';
+import { JENKINS_ENABLED } from './featureFlags';
 
 // The InputEvent type from Forge UI Kit 2 is a serialisable event object (not
 // the standard DOM Event). Only target.value is needed here.
@@ -30,11 +31,21 @@ type ForgeInputEvent = { target: { value?: unknown } };
 type ForgeSelectEvent = { value: string; label: string };
 
 /** Available CI provider options for the dropdown. */
-const CI_PROVIDER_OPTIONS: Array<{ label: string; value: CIProviderType }> = [
+const ALL_CI_PROVIDER_OPTIONS: Array<{ label: string; value: CIProviderType }> = [
   { label: 'Bitbucket Pipelines', value: 'BITBUCKET_PIPELINES' },
   { label: 'Bitbucket Pipelines (on-demand)', value: 'BITBUCKET_ONDEMAND' },
   { label: 'Jenkins', value: 'JENKINS' },
 ];
+
+/**
+ * Options shown in the provider dropdown. In the `lite` release variant the
+ * compile-time `JENKINS_ENABLED` flag is `false`, which removes the Jenkins
+ * row entirely — admins should not see a provider they cannot configure.
+ */
+const CI_PROVIDER_OPTIONS: Array<{ label: string; value: CIProviderType }> =
+  JENKINS_ENABLED
+    ? ALL_CI_PROVIDER_OPTIONS
+    : ALL_CI_PROVIDER_OPTIONS.filter((opt) => opt.value !== 'JENKINS');
 
 export const SettingsForm = () => {
   // Single state holds both the loaded values and any user edits.
@@ -72,7 +83,16 @@ export const SettingsForm = () => {
 
         // Pass the project UUID to the resolver so it fetches project-scoped config.
         const data = await invoke<AppConfig>('getSettings', { projectUuid: uuid });
-        setFormValues(data ?? DEFAULT_CONFIG);
+        const loaded = data ?? DEFAULT_CONFIG;
+        // In the `lite` build the Jenkins provider does not exist. If a
+        // stale stored config still points at it, fall back to the default
+        // provider so the dropdown reflects an option the user can actually
+        // pick. The value is not persisted automatically — the admin must
+        // press Save — so we don't silently rewrite their stored settings.
+        if (!JENKINS_ENABLED && loaded.ciType === 'JENKINS') {
+          loaded.ciType = DEFAULT_CONFIG.ciType;
+        }
+        setFormValues(loaded);
 
         // Load project-scoped monitoring events (best-effort — errors are silently ignored).
         try {

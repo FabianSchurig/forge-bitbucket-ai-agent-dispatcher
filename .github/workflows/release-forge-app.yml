@@ -102,7 +102,7 @@ jobs:
           npm ci
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
-      - name: Transform manifest for "lite" variant
+      - name: Transform sources for "lite" variant
         if: env.SKIP_VARIANT != 'true' && matrix.variant == 'lite'
         # `yq` is preinstalled on GitHub-hosted ubuntu-latest runners
         # (mikefarah/yq). Using it keeps the transformation declarative and
@@ -116,8 +116,21 @@ jobs:
           #    deploying to a separate Marketplace app, not overwriting the
           #    full variant.
           yq -i ".app.id = \"$FORGE_APP_ID_LITE\"" manifest.yml
+          # 3. Flip the JENKINS_ENABLED compile-time feature flag to `false`
+          #    so the bundled UI hides the Jenkins option and the backend
+          #    ProviderFactory refuses to instantiate it. See
+          #    src/featureFlags.ts for the rationale.
+          sed -i 's/JENKINS_ENABLED = true/JENKINS_ENABLED = false/' \
+              src/featureFlags.ts
+          # Defensive guard: fail fast if the substitution did not take —
+          # otherwise the lite build would silently ship with Jenkins still on.
+          grep -q 'JENKINS_ENABLED = false' src/featureFlags.ts || {
+            echo "::error::Failed to disable JENKINS_ENABLED in src/featureFlags.ts"; exit 1;
+          }
           echo "---- manifest.yml after 'lite' transform ----"
           cat manifest.yml
+          echo "---- src/featureFlags.ts after 'lite' transform ----"
+          cat src/featureFlags.ts
 
       - name: Disable Forge usage analytics (CI standard)
         if: env.SKIP_VARIANT != 'true'
