@@ -82,9 +82,8 @@ export interface AppConfig {
 /**
  * Default YAML body for on-demand pipelines.
  *
- * Mirrors the canonical "run-agent-session" custom pipeline that the legacy
- * hub-repo flow expects, so admins switching from the hub-repo provider get
- * the same out-of-the-box behaviour without provisioning a central repo.
+ * Runs the bundled ai-agent-pipe directly, so admins can use the on-demand
+ * provider without provisioning a separate hub repository.
  *
  * The variables referenced as $VARIABLES are populated via query parameters
  * sent alongside this body — see src/ondemandPipelinePayload.ts.
@@ -92,15 +91,34 @@ export interface AppConfig {
 export const DEFAULT_ONDEMAND_YAML = `pipelines:
   default:
     - step:
-        name: Run AI agent session
+        name: Run ai-agent-pipe
         image: atlassian/default-image:5
+        size: 2x
+        services:
+          - docker
         script:
-          - echo "Running AI agent for PR #$PR_ID on $SOURCE_WORKSPACE/$SOURCE_REPO"
-          - echo "Source branch: $SOURCE_BRANCH"
-          - echo "Triggered by: $COMMENT_AUTHOR"
-          - echo "Comment text: $COMMENT_TEXT"
-          # Replace the line below with your agent invocation.
-          - echo "(no agent command configured — edit the on-demand YAML in project settings)"
+          - export DOCKER_BUILDKIT=1
+          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.1.0
+            variables:
+              AGENT_TYPE: "copilot"
+              SOURCE_WORKSPACE: $SOURCE_WORKSPACE
+              SOURCE_REPO: $SOURCE_REPO
+              SOURCE_BRANCH: $SOURCE_BRANCH
+              PR_ID: $PR_ID
+              COMMENT_TEXT: $COMMENT_TEXT
+              COMMENT_AUTHOR: $COMMENT_AUTHOR
+              # The following must be configured as Secured repository or
+              # workspace variables in Bitbucket – they are NOT sent by the
+              # Forge dispatcher.
+              COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              BITBUCKET_TOKEN: $BITBUCKET_TOKEN
+              BITBUCKET_USERNAME: $BITBUCKET_USERNAME
+              SSH_KEY: $SSH_KEY
+
+definitions:
+  services:
+    docker:
+      memory: 4096
 `;
 
 /** Default configuration values. */
