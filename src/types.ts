@@ -77,6 +77,37 @@ export interface AppConfig {
    * skipped) in Forge Storage for later review in the settings UI.
    */
   monitoringEnabled: boolean;
+
+  // -- Custom pipeline variables -------------------------------------------
+
+  /**
+   * Admin-defined extra variables forwarded to every dispatched pipeline as
+   * `variables[N].key/value/secured` query parameters on the on-demand POST.
+   *
+   * - Non-secured values are stored as plaintext in encrypted Forge KVS and
+   *   round-trip to the settings UI like any other config field.
+   * - Secured values are also stored encrypted, but the `getSettings`
+   *   resolver strips them before returning to the UI (write-only field).
+   *   Bitbucket masks them in pipeline logs because `secured=true` is
+   *   forwarded on the wire.
+   */
+  pipelineVariables: PipelineVariable[];
+}
+
+/** A single admin-defined pipeline variable. */
+export interface PipelineVariable {
+  /** Variable name as it will appear in the pipeline step (e.g. "GITHUB_TOKEN"). */
+  key: string;
+  /**
+   * Variable value. For secured variables this field is write-only from the
+   * UI's perspective — see AppConfig.pipelineVariables.
+   */
+  value: string;
+  /**
+   * When true the value is treated as a secret: Bitbucket masks it in logs
+   * and the settings UI never reads it back from storage.
+   */
+  secured: boolean;
 }
 
 /**
@@ -135,6 +166,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   jenkinsUrl: '',
   jenkinsJobPath: '',
   monitoringEnabled: false,
+  pipelineVariables: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -203,12 +235,6 @@ export interface DispatchContext {
   commentId: number;
 }
 
-/** A single pipeline variable sent in the dispatch payload. */
-export interface PipelineVariable {
-  key: string;
-  value: string;
-}
-
 /** Shape of the Bitbucket Pipelines API POST body. */
 export interface PipelinePayload {
   target: {
@@ -220,5 +246,13 @@ export interface PipelinePayload {
       pattern: string;
     };
   };
-  variables: PipelineVariable[];
+  /**
+   * Variables forwarded in the POST body. Note this is intentionally a
+   * narrower shape than {@link PipelineVariable} above — the hub-repo
+   * provider does not carry per-row `secured` metadata because Bitbucket's
+   * JSON-body variables for the standard Pipelines API don't accept that
+   * field; secured handling is provided by the on-demand provider via
+   * indexed query parameters.
+   */
+  variables: Array<{ key: string; value: string }>;
 }

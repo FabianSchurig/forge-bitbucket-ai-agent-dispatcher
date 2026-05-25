@@ -1,4 +1,4 @@
-import { getSettings, saveSettings } from '../storage';
+import { getSettings, getSettingsForUi, saveSettings } from '../storage';
 import { DEFAULT_CONFIG } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -258,5 +258,90 @@ describe('saveSettings (project-scoped)', () => {
       triggerKeyword: '!existing',
       hubRepository: 'new-hub',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pipeline variables — secured value handling
+// ---------------------------------------------------------------------------
+
+describe('pipelineVariables handling', () => {
+  beforeEach(() => {
+    mockStorageGet.mockReset();
+    mockStorageSet.mockReset();
+    mockStorageGet.mockResolvedValue(undefined);
+    mockStorageSet.mockResolvedValue(undefined);
+  });
+
+  it('getSettingsForUi strips secured variable values', async () => {
+    mockStorageGet.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      pipelineVariables: [
+        { key: 'PUBLIC', value: 'visible', secured: false },
+        { key: 'SECRET', value: 'shh', secured: true },
+      ],
+    });
+
+    const config = await getSettingsForUi();
+
+    expect(config.pipelineVariables).toEqual([
+      { key: 'PUBLIC', value: 'visible', secured: false },
+      { key: 'SECRET', value: '', secured: true },
+    ]);
+  });
+
+  it('saveSettings preserves the existing secured value when the new value is blank', async () => {
+    mockStorageGet.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      pipelineVariables: [{ key: 'SECRET', value: 'original', secured: true }],
+    });
+
+    await saveSettings({
+      pipelineVariables: [{ key: 'SECRET', value: '', secured: true }],
+    });
+
+    const [, persisted] = mockStorageSet.mock.calls[0] as [
+      string,
+      { pipelineVariables: unknown },
+    ];
+    expect(persisted.pipelineVariables).toEqual([
+      { key: 'SECRET', value: 'original', secured: true },
+    ]);
+  });
+
+  it('saveSettings overwrites the secured value when a new non-empty value is supplied', async () => {
+    mockStorageGet.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      pipelineVariables: [{ key: 'SECRET', value: 'original', secured: true }],
+    });
+
+    await saveSettings({
+      pipelineVariables: [{ key: 'SECRET', value: 'rotated', secured: true }],
+    });
+
+    const [, persisted] = mockStorageSet.mock.calls[0] as [
+      string,
+      { pipelineVariables: unknown },
+    ];
+    expect(persisted.pipelineVariables).toEqual([
+      { key: 'SECRET', value: 'rotated', secured: true },
+    ]);
+  });
+
+  it('saveSettings drops rows with an empty key', async () => {
+    await saveSettings({
+      pipelineVariables: [
+        { key: '', value: 'orphan', secured: false },
+        { key: 'KEEP', value: '1', secured: false },
+      ],
+    });
+
+    const [, persisted] = mockStorageSet.mock.calls[0] as [
+      string,
+      { pipelineVariables: unknown },
+    ];
+    expect(persisted.pipelineVariables).toEqual([
+      { key: 'KEEP', value: '1', secured: false },
+    ]);
   });
 });

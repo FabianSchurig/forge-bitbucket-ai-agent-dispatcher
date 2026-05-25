@@ -40,10 +40,14 @@ export function extractTriggerContext(event: Record<string, unknown>): DispatchC
   const commentId = (comment?.id as number) ?? 0;
   const commentAuthor = (actor?.accountId as string) ?? (actor?.uuid as string) ?? 'unknown';
 
-  // Extract the project UUID from the repository object.
-  // Bitbucket associates repositories with projects; the event payload
-  // includes the project context under repository.project.uuid.
-  const project = repository?.project as Record<string, unknown> | undefined;
+  // Extract the project UUID from the event. Bitbucket trigger events have
+  // used both shapes in practice: older/mocked payloads put the project under
+  // repository.project, while live Forge events expose it as a top-level
+  // project object. Prefer the repository-local value if present, then fall
+  // back to the live event shape so project-scoped settings resolve correctly.
+  const project =
+    (repository?.project as Record<string, unknown> | undefined) ??
+    (event?.project as Record<string, unknown> | undefined);
   const projectUuid = (project?.uuid as string) ?? '';
 
   // The Forge event includes source branch info directly on the pullrequest.

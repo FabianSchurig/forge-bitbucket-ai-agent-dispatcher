@@ -1,5 +1,5 @@
 import kvs from '@forge/kvs';
-import { AppConfig, DEFAULT_CONFIG } from './types';
+import { AppConfig, DEFAULT_CONFIG, PipelineVariable } from './types';
 
 /**
  * Legacy global storage key used before the project-scoped migration.
@@ -86,18 +86,79 @@ export async function getSettings(
  * the legacy global key is used.
  *
  * The supplied values are merged on top of the existing persisted values.
+ *
+ * Special handling for `pipelineVariables`:
+ *   - Rows with an empty `key` are dropped (UI may submit blank "new row"
+ *     placeholders).
+ *   - For secured rows whose `value` is empty, the existing stored value
+ *     for that key (if any) is preserved.  This implements the write-only
+ *     UX where the settings page never echoes secured values back, but a
+ *     user can still re-save the form without clobbering existing secrets.
  */
 export async function saveSettings(
   config: Partial<AppConfig>,
   projectUuid?: string,
 ): Promise<void> {
   const current = await getSettings(projectUuid);
-  const updated: AppConfig = { ...current, ...config };
+  const merged: AppConfig = { ...current, ...config };
+
+  // Reconcile pipelineVariables if the caller supplied them.
+  if (config.pipelineVariables !== undefined) {
+    merged.pipelineVariables = mergePipelineVariables(
+      current.pipelineVariables ?? [],
+      config.pipelineVariables,
+    );
+  }
 
   if (projectUuid) {
-    await kvs.set(projectKey(projectUuid), updated);
+    await kvs.set(projectKey(projectUuid), merged);
   } else {
     // Legacy path (no project context available).
-    await kvs.set(LEGACY_STORAGE_KEY, updated);
+    await kvs.set(LEGACY_STORAGE_KEY, merged);
   }
+}
+
+/**
+ * Returns the app configuration with all secured variable values stripped.
+ * Use this in any code path that returns config to the settings UI so that
+ * secured values never leave the backend after they're first stored.
+ */
+export async function getSettingsForUi(
+  projectUuid?: string,
+  repoUuid?: string,
+): Promise<AppConfig> {
+  const config = await getSettings(projectUuid, repoUuid);
+  return {
+    ...config,
+    pipelineVariables: (config.pipelineVariables ?? []).map((v) =>
+      v.secured ? { ...v, value: '' } : v,
+    ),
+  };
+}
+
+/**
+ * Merges incoming pipeline variables on top of the previously-stored list.
+ *
+ * Rules:
+ *   - Empty-key rows are dropped (treated as blank "new row" placeholders).
+ *   - Secured rows with an empty value inherit the previously-stored value
+ *     for the same key (preserves write-only secrets through a no-op save).
+ *   - Non-secured rows are taken verbatim from the incoming list.
+ */
+function mergePipelineVariables(
+  previous: PipelineVariable[],
+  incoming: PipelineVariable[],
+): PipelineVariable[] {
+  const previousByKey = new Map(previous.map((v) => [v.key, v]));
+  return incoming
+    .filter((v) => v.key && v.key.trim().length > 0)
+    .map((v) => {
+      if (v.secured && v.value === '') {
+        const prior = previousByKey.get(v.key);
+        if (prior && prior.secured) {
+          return { ...v, value: prior.value };
+        }
+      }
+      return v;
+    });
 }

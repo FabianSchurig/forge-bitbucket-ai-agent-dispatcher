@@ -102,10 +102,12 @@ mkdir -p "$WRAPPER_DIR/.devcontainer"
 cp -R "$AGENT_CONFIG_DIR/wrapper-devcontainer/." "$WRAPPER_DIR/.devcontainer/"
 
 echo "==> Building agent image ($AGENT_TYPE layered on $TARGET_IMAGE)."
-devcontainer build \
+# The devcontainer CLI does NOT accept --build-arg; instead the wrapper
+# devcontainer.json references ${localEnv:BASE_IMAGE} under build.args, so we
+# export it for the CLI process to interpolate.
+BASE_IMAGE="$TARGET_IMAGE" devcontainer build \
     --workspace-folder "$WRAPPER_DIR" \
-    --image-name "$AGENT_IMAGE" \
-    --build-arg "BASE_IMAGE=$TARGET_IMAGE"
+    --image-name "$AGENT_IMAGE"
 
 # ---------------------------------------------------------------------------
 # Step 4 – extract devcontainer metadata for lifecycle replay and user choice.

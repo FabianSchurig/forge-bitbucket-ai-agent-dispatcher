@@ -7,11 +7,21 @@
  * bitbucket-pipelines.yml file: the YAML pipeline definition is POSTed
  * directly to the API at request time.
  *
- * Endpoint : POST /2.0/repositories/{ws}/{repo}/pipelines/{queryString}
+ * Endpoint : POST /2.0/repositories/{ws}/{repo}/pipelines{queryString}
  * Headers  : Content-Type: application/yaml
  * Body     : raw YAML pipeline definition
- * Query    : target.ref_type=branch&target.ref_name=…&
- *            target.selector.type=default&variables.<KEY>=<value>…
+ * Query    : target.type=pipeline_ref_target&target.ref_type=branch&
+ *            target.ref_name=…&variables[0].key=<KEY>&variables[0].value=<value>…
+ *
+ * Authentication
+ * --------------
+ * Requests are made via `api.asApp().requestBitbucket()`.  The Bitbucket
+ * on-demand endpoint requires the Forge app to hold both
+ * `read/write:pipeline:bitbucket` *and* `write:repository:bitbucket` —
+ * the latter is what satisfies Bitbucket's per-branch write-permission
+ * check on the target ref.  On branches covered by a branch restriction
+ * the Forge app principal additionally needs to be on that restriction's
+ * allow list.
  *
  * Payload + query-string construction is delegated to the shared
  * buildOndemandRequest() helper.
@@ -47,12 +57,7 @@ export class BitbucketOndemandProvider implements CIProvider {
     const request = buildOndemandRequest(context, this.config);
 
     try {
-      // The Forge `route` tag accepts URLSearchParams as a substitution and
-      // serialises it into a properly-encoded query string exactly once —
-      // so we pass `request.queryParams` directly instead of re-encoding
-      // the variables ourselves.
-      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines/?${request.queryParams}`;
-
+      const url = route`/2.0/repositories/${request.targetWorkspace}/${request.targetRepoSlug}/pipelines?${request.queryParams}`;
       const response = await api.asApp().requestBitbucket(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/yaml' },
@@ -61,9 +66,12 @@ export class BitbucketOndemandProvider implements CIProvider {
 
       if (!response.ok) {
         const body = await response.text();
+        const permissionHint = response.status === 403
+          ? ' Verify the Forge app has the write:repository:bitbucket scope and, if the target branch has a branch restriction, that the Forge app is on its allow list.'
+          : '';
         throw new CIProviderError(
           PROVIDER_NAME,
-          `Failed to trigger on-demand pipeline: ${response.status} – ${body}`,
+          `Failed to trigger on-demand pipeline: ${response.status} – ${body}${permissionHint}`,
           response.status,
         );
       }

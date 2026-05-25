@@ -52,6 +52,8 @@ For the on-demand provider, the following variables are passed as query paramete
 | `$COMMENT_TEXT` | Raw text of the triggering comment |
 | `$COMMENT_AUTHOR` | Atlassian account ID of the comment author |
 
+Additional admin-defined variables (including secrets) can be configured per project in the settings UI under **Pipeline Variables** — they are forwarded on every dispatch as further `variables[N].*` query parameters and, when the *Secured* toggle is on, masked in pipeline logs by Bitbucket.
+
 ### Adding a New Provider
 
 1. Create a new class in `src/providers/` that implements `CIProvider`
@@ -221,8 +223,16 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 | `read:repository:bitbucket` | Fetch repository slug and workspace slug from UUIDs |
 | `write:pipeline:bitbucket` | Trigger a custom pipeline in the hub repository |
 | `write:pullrequest:bitbucket` | Post a failure reply comment on the PR |
+| `write:repository:bitbucket` | Required by Bitbucket's on-demand pipelines API to satisfy the per-branch write-permission check on the target ref |
 | `read:pipeline:bitbucket` | Check build status via Bitbucket Pipelines API |
 | `storage:app` | Persist and retrieve workspace configuration |
+
+> **On-demand pipelines note:** Bitbucket's on-demand pipelines API
+> enforces the caller's write permission on the target branch. Requests
+> are made via `api.asApp().requestBitbucket()` using the scopes above.
+> If the target branch has a branch restriction ("Restrict pushes")
+> configured in Bitbucket, the Forge app principal must additionally be
+> on that restriction's allow list — otherwise the API returns HTTP 403.
 
 ---
 
@@ -235,6 +245,7 @@ To promote to production, duplicate the `deploy-and-install` job, change `-e sta
 > **Important:** Forge blocks all outbound HTTP requests to domains not declared in `manifest.yml`. If using Jenkins, set this to your actual Jenkins server domain (for example, `jenkins.mycompany.com`) and avoid wildcards unless they are strictly required.
 
 ---
+
 
 ## Project Structure
 

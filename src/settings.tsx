@@ -118,6 +118,43 @@ export const SettingsForm = () => {
     }));
   };
 
+  // -------------------------------------------------------------------
+  // Pipeline variable handlers (custom admin-defined variables)
+  // -------------------------------------------------------------------
+  // The list lives directly in formValues.pipelineVariables.  All mutations
+  // are immutable replacements so React re-renders cleanly.
+  const updateVariable = (
+    index: number,
+    patch: Partial<{ key: string; value: string; secured: boolean }>,
+  ): void => {
+    setFormValues((prev: AppConfig) => {
+      const next = [...(prev.pipelineVariables ?? [])];
+      next[index] = { ...next[index], ...patch };
+      // When the user flips a row from secured → unsecured, the value field
+      // becomes a normal Textfield.  Leave whatever value is currently in
+      // state so the user can see what they're un-securing.
+      return { ...prev, pipelineVariables: next };
+    });
+  };
+
+  const addVariable = (): void => {
+    setFormValues((prev: AppConfig) => ({
+      ...prev,
+      pipelineVariables: [
+        ...(prev.pipelineVariables ?? []),
+        { key: '', value: '', secured: false },
+      ],
+    }));
+  };
+
+  const removeVariable = (index: number): void => {
+    setFormValues((prev: AppConfig) => {
+      const next = [...(prev.pipelineVariables ?? [])];
+      next.splice(index, 1);
+      return { ...prev, pipelineVariables: next };
+    });
+  };
+
   // Form onSubmit must match `() => Promise<void | boolean> | void` (no args).
   const handleSubmit = async (): Promise<void> => {
     setSaved(false);
@@ -312,9 +349,11 @@ export const SettingsForm = () => {
                 On-demand pipelines run the YAML below directly via the
                 Bitbucket Pipelines API — there is no need to maintain a
                 separate ai-agent-hub repository. The following variables are
-                available inside your steps as environment variables:
-                $SOURCE_WORKSPACE, $SOURCE_REPO, $PR_ID, $SOURCE_BRANCH,
-                $COMMENT_TEXT, $COMMENT_AUTHOR.
+                dispatched as query parameters and available inside your
+                steps as environment variables: $SOURCE_WORKSPACE,
+                $SOURCE_REPO, $PR_ID, $SOURCE_BRANCH, $COMMENT_TEXT,
+                $COMMENT_AUTHOR. Add any additional variables (including
+                secrets) in the "Pipeline Variables" section below.
               </Text>
             </SectionMessage>
 
@@ -399,6 +438,89 @@ export const SettingsForm = () => {
             </SectionMessage>
           </FormSection>
         )}
+
+        {/* Pipeline Variables — admin-defined extras forwarded on every dispatch. */}
+        <FormSection>
+          <Heading as="h3">Pipeline Variables</Heading>
+          <Text>
+            Extra variables forwarded with every dispatched pipeline. Use
+            this to inject per-project secrets (e.g. COPILOT_GITHUB_TOKEN,
+            BITBUCKET_TOKEN, SSH_KEY) without configuring them on every
+            spoke repository. When Secured is on, Bitbucket masks the
+            value in pipeline logs and the settings page never reads it
+            back — leave the value field blank on subsequent saves to keep
+            the stored secret unchanged.
+          </Text>
+
+          <Stack space="space.200">
+            {(formValues.pipelineVariables ?? []).map((variable, index) => (
+              <Stack key={`pv-${index}`} space="space.050">
+                <Inline space="space.100" alignBlock="center" spread="space-between">
+                  <Inline space="space.100" alignBlock="center" grow="fill">
+                    <Textfield
+                      id={`pv-key-${index}`}
+                      name={`pv-key-${index}`}
+                      value={variable.key}
+                      placeholder="VARIABLE_NAME"
+                      onChange={(e: ForgeInputEvent) =>
+                        updateVariable(index, {
+                          key: String(e.target.value ?? ''),
+                        })
+                      }
+                    />
+                    <TextArea
+                      id={`pv-value-${index}`}
+                      name={`pv-value-${index}`}
+                      value={variable.value}
+                      placeholder={
+                        variable.secured && variable.value === ''
+                          ? '•••• (configured — leave blank to keep)'
+                          : 'value (multi-line OK — paste full PEM key here)'
+                      }
+                      onChange={(e: ForgeInputEvent) =>
+                        updateVariable(index, {
+                          value: String(e.target.value ?? ''),
+                        })
+                      }
+                    />
+                  </Inline>
+                  <Inline space="space.200" alignBlock="center">
+                    <Toggle
+                      id={`pv-secured-${index}`}
+                      label="Secured"
+                      isChecked={variable.secured}
+                      onChange={() =>
+                        updateVariable(index, { secured: !variable.secured })
+                      }
+                    />
+                    <Button
+                      appearance="subtle"
+                      onClick={() => removeVariable(index)}
+                    >
+                      Remove
+                    </Button>
+                  </Inline>
+                </Inline>
+              </Stack>
+            ))}
+
+            <Inline>
+              <Button appearance="default" onClick={addVariable}>
+                + Add variable
+              </Button>
+            </Inline>
+
+            <HelperMessage>
+              Variable names must start with a letter or underscore and
+              contain only letters, digits, and underscores. Custom
+              variables are forwarded by the on-demand provider as indexed
+              query parameters (variables[N].key/value/secured). If you use
+              the hub-repo provider, the hub's bitbucket-pipelines.yml must
+              declare a matching {`{ name: VARIABLE_NAME }`} entry under
+              the step's variables: block to consume them.
+            </HelperMessage>
+          </Stack>
+        </FormSection>
 
         <Button type="submit" appearance="primary">
           Save Settings

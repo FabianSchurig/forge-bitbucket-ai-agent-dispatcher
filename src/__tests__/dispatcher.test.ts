@@ -134,6 +134,15 @@ describe('extractTriggerContext', () => {
     expect(ctx?.commentText).toBe('');
   });
 
+  it('reads projectUuid from top-level project when repository.project is missing', () => {
+    const event = makeEvent({
+      repository: { uuid: '{repo-uuid-1234}' },
+      project: { uuid: '{top-level-proj-uuid}' },
+    });
+    const ctx = extractTriggerContext(event);
+    expect(ctx?.projectUuid).toBe('{top-level-proj-uuid}');
+  });
+
   it('returns empty string for projectUuid when project is missing', () => {
     const event = makeEvent({
       repository: { uuid: '{repo-uuid-1234}' }, // no project field

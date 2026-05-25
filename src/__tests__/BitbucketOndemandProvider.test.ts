@@ -14,6 +14,9 @@ jest.mock('@forge/api', () => ({
     asApp: jest.fn().mockReturnValue({
       requestBitbucket: jest.fn(),
     }),
+    asUser: jest.fn().mockReturnValue({
+      requestBitbucket: jest.fn(),
+    }),
   },
   storage: {
     get: jest.fn(),
@@ -31,6 +34,7 @@ jest.mock('@forge/api', () => ({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const forgeApiMock = jest.requireMock('@forge/api') as any;
 const mockRequestBitbucket: jest.Mock = forgeApiMock.default.asApp().requestBitbucket;
+const mockAsUserRequestBitbucket: jest.Mock = forgeApiMock.default.asUser().requestBitbucket;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,7 +78,10 @@ function makePayload(overrides: Partial<BuildPayload> = {}): BuildPayload {
 // ---------------------------------------------------------------------------
 
 describe('BitbucketOndemandProvider', () => {
-  beforeEach(() => mockRequestBitbucket.mockReset());
+  beforeEach(() => {
+    mockRequestBitbucket.mockReset();
+    mockAsUserRequestBitbucket.mockReset();
+  });
 
   describe('triggerBuild', () => {
     it('triggers an on-demand pipeline and returns a build URL derived from build_number', async () => {
@@ -94,6 +101,8 @@ describe('BitbucketOndemandProvider', () => {
         'https://bitbucket.org/my-workspace/spoke-repo/pipelines/results/42',
       );
       expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
+      expect(forgeApiMock.default.asApp).toHaveBeenCalled();
+      expect(mockAsUserRequestBitbucket).not.toHaveBeenCalled();
     });
 
     it('sends Content-Type: application/yaml and the YAML body verbatim', async () => {
@@ -129,14 +138,17 @@ describe('BitbucketOndemandProvider', () => {
       await provider.triggerBuild(makePayload(), makeContext());
 
       const url = mockRequestBitbucket.mock.calls[0][0] as string;
-      expect(url).toContain('/2.0/repositories/my-workspace/spoke-repo/pipelines/');
+      expect(url).toContain('/2.0/repositories/my-workspace/spoke-repo/pipelines?');
       expect(url).toContain('?');
+      expect(url).toContain('target.type=pipeline_ref_target');
       expect(url).toContain('target.ref_type=branch');
       // URLSearchParams encodes the branch slash as %2F.
       expect(url).toContain('target.ref_name=feature%2Fcool-stuff');
-      expect(url).toContain('target.selector.type=default');
-      expect(url).toContain('variables.SOURCE_WORKSPACE=my-workspace');
-      expect(url).toContain('variables.PR_ID=7');
+      expect(url).not.toContain('target.selector.type=default');
+      expect(url).toContain('variables%5B0%5D.key=SOURCE_WORKSPACE');
+      expect(url).toContain('variables%5B0%5D.value=my-workspace');
+      expect(url).toContain('variables%5B2%5D.key=PR_ID');
+      expect(url).toContain('variables%5B2%5D.value=7');
     });
 
     it('uses ondemandTargetRepo override when set', async () => {
@@ -153,7 +165,7 @@ describe('BitbucketOndemandProvider', () => {
       await provider.triggerBuild(makePayload(), makeContext());
 
       const url = mockRequestBitbucket.mock.calls[0][0] as string;
-      expect(url).toContain('/2.0/repositories/central-ws/runner/pipelines/');
+      expect(url).toContain('/2.0/repositories/central-ws/runner/pipelines?');
     });
 
     it('uses ondemandTargetBranch override when set', async () => {

@@ -1,5 +1,8 @@
 import Resolver from '@forge/resolver';
-import { getSettings, saveSettings } from './storage';
+import {
+  getSettingsForUi,
+  saveSettings,
+} from './storage';
 import { getDispatchEvents } from './monitoring';
 import { ProviderFactory } from './factories/ProviderFactory';
 import { CIProviderError } from './interfaces/CIProviderError';
@@ -11,9 +14,13 @@ const resolver = new Resolver();
 /**
  * Returns the current configuration for the given project.
  * The UI passes the project UUID from the Forge extension context.
+ *
+ * Uses getSettingsForUi so secured pipeline-variable values are stripped
+ * before they leave the backend — the settings page is intentionally
+ * write-only for secrets.
  */
 resolver.define('getSettings', async ({ payload }: { payload: { projectUuid?: string } }): Promise<AppConfig> => {
-  return await getSettings(payload?.projectUuid);
+  return await getSettingsForUi(payload?.projectUuid);
 });
 
 /**

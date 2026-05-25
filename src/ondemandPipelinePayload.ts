@@ -10,9 +10,9 @@
  *
  * Endpoint: POST /2.0/repositories/{ws}/{repo}/pipelines/
  * Headers : Content-Type: application/yaml
- * Query   : target.ref_type=branch&target.ref_name=<branch>&
- *           target.selector.type=default&
- *           variables.SOURCE_WORKSPACE=<ws>&… (one per variable)
+ * Query   : target.type=pipeline_ref_target&target.ref_type=branch&
+ *           target.ref_name=<branch>&variables[0].key=SOURCE_WORKSPACE&
+ *           variables[0].value=<ws>&… (one indexed pair per variable)
  *
  * See the Atlassian docs:
  *   https://developer.atlassian.com/cloud/bitbucket/rest/api-group-pipelines/
@@ -33,11 +33,9 @@ export interface OndemandRequest {
   yamlBody: string;
   /**
    * URLSearchParams carrying the target selection and pipeline variables.
-   * The Forge `route` tag accepts a URLSearchParams substitution natively
-   * and percent-encodes its serialised form once, so callers can embed it
-   * directly with `route\`/.../pipelines/?${queryParams}\`` without
-   * re-encoding (and without any drift between the helper's encoding and
-   * the provider's URL construction).
+  * The Forge `route` tag accepts a URLSearchParams substitution natively,
+  * so callers can embed it directly with `route\`/.../pipelines?${queryParams}\``
+  * without duplicating the encoding logic.
    */
   queryParams: URLSearchParams;
 }
@@ -91,6 +89,28 @@ function validateBranch(branch: string): void {
     throw new CIProviderError(
       'Bitbucket Pipelines (on-demand)',
       `Invalid target branch "${branch}". Branch names must start with an alphanumeric and may contain '-', '_', '.', '/'.`,
+    );
+  }
+}
+
+/**
+ * Allowlist for admin-defined pipeline variable keys.
+ * Matches POSIX environment variable grammar: starts with a letter or '_',
+ * followed by letters, digits, or '_'.  This is also what Bitbucket allows
+ * for pipeline `variables[].name` entries.
+ */
+const VARIABLE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Validates an admin-defined variable key.  Throws CIProviderError when
+ * the value is unsafe to splice into the URL or would be rejected by
+ * Bitbucket's pipeline runner.
+ */
+function validateVariableKey(key: string): void {
+  if (!VARIABLE_KEY_RE.test(key)) {
+    throw new CIProviderError(
+      'Bitbucket Pipelines (on-demand)',
+      `Invalid pipeline variable name "${key}". Names must start with a letter or underscore and contain only letters, digits, and underscores.`,
     );
   }
 }
@@ -155,19 +175,47 @@ export function buildOndemandRequest(
   // URLSearchParams handles all the percent-encoding so values containing
   // spaces / Unicode / reserved characters are safe.
   const params = new URLSearchParams();
+  params.append('target.type', 'pipeline_ref_target');
   params.append('target.ref_type', 'branch');
   params.append('target.ref_name', targetBranch);
-  params.append('target.selector.type', 'default');
 
-  // The same six variables the JSON-payload provider sends today, mirrored
-  // as query parameters using the documented "variables.<KEY>=<value>"
-  // JSON-path notation.
-  params.append('variables.SOURCE_WORKSPACE', context.workspace);
-  params.append('variables.SOURCE_REPO', context.repoSlug);
-  params.append('variables.PR_ID', String(context.prId));
-  params.append('variables.SOURCE_BRANCH', context.sourceBranch);
-  params.append('variables.COMMENT_TEXT', context.commentText);
-  params.append('variables.COMMENT_AUTHOR', context.commentAuthor);
+  // Bitbucket models pipeline variables as an array in the JSON API, so the
+  // on-demand YAML endpoint expects indexed JSON-path query parameters.
+  const variables: Array<[string, string]> = [
+    ['SOURCE_WORKSPACE', context.workspace],
+    ['SOURCE_REPO', context.repoSlug],
+    ['PR_ID', String(context.prId)],
+    ['SOURCE_BRANCH', context.sourceBranch],
+    ['COMMENT_TEXT', context.commentText],
+    ['COMMENT_AUTHOR', context.commentAuthor],
+  ];
+
+  variables.forEach(([key, value], index) => {
+    params.append(`variables[${index}].key`, key);
+    params.append(`variables[${index}].value`, value);
+  });
+
+  // -- Admin-defined extra variables -------------------------------------
+  // These continue the same `variables[N].*` indexed sequence so Bitbucket
+  // sees one flat array of variables.  Empty-key rows are skipped (the
+  // settings UI may produce blank placeholder rows) and the secured flag
+  // is only emitted when true to keep URLs tidy.  Keys are validated
+  // against the standard env-var grammar to reject anything that could
+  // confuse the pipeline runner.
+  let nextIndex = variables.length;
+  for (const variable of config.pipelineVariables ?? []) {
+    const key = (variable.key ?? '').trim();
+    if (!key) {
+      continue;
+    }
+    validateVariableKey(key);
+    params.append(`variables[${nextIndex}].key`, key);
+    params.append(`variables[${nextIndex}].value`, variable.value ?? '');
+    if (variable.secured) {
+      params.append(`variables[${nextIndex}].secured`, 'true');
+    }
+    nextIndex += 1;
+  }
 
   return {
     targetWorkspace,

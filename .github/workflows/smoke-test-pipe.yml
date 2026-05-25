@@ -94,7 +94,7 @@ jobs:
 
           urlencode() { jq -nr --arg value "$1" '$value|@uri'; }
 
-          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines/?target.ref_type=branch&target.ref_name=$(urlencode "$BRANCH")&target.selector.type=default"
+          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines?target.type=pipeline_ref_target&target.ref_type=branch&target.ref_name=$(urlencode "$BRANCH")"
           RESPONSE=$(curl -fsSL \
               -u "${BB_USERNAME}:${BB_APP_PASSWORD}" \
               -H 'Content-Type: application/yaml' \

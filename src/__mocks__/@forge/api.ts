@@ -2,6 +2,7 @@
  * Jest manual mock for @forge/api.
  *
  * Provides jest.fn() stubs for api.asApp().requestBitbucket(),
+ * api.asUser().requestBitbucket(),
  * api.fetch(), storage.get(), storage.set(), storage.getSecret(),
  * storage.setSecret(), and the route template-literal tag.
  *
@@ -15,6 +16,9 @@ const mockFetch = jest.fn();
 
 const api = {
   asApp: jest.fn().mockReturnValue({
+    requestBitbucket: mockRequestBitbucket,
+  }),
+  asUser: jest.fn().mockReturnValue({
     requestBitbucket: mockRequestBitbucket,
   }),
   fetch: mockFetch,

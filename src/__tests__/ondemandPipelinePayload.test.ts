@@ -98,21 +98,28 @@ describe('buildOndemandRequest', () => {
   it('includes the standard target.* parameters', () => {
     const { queryParams } = buildOndemandRequest(makeContext(), makeConfig());
     const queryString = queryParams.toString();
+    expect(queryString).toContain('target.type=pipeline_ref_target');
     expect(queryString).toContain('target.ref_type=branch');
-    expect(queryString).toContain('target.selector.type=default');
+    expect(queryString).not.toContain('target.selector.type=default');
   });
 
-  it('emits all six pipeline variables using "variables.<KEY>=<value>" notation', () => {
+  it('emits all six pipeline variables using indexed variable notation', () => {
     const { queryParams } = buildOndemandRequest(makeContext(), makeConfig());
     const queryString = queryParams.toString();
-    expect(queryString).toContain('variables.SOURCE_WORKSPACE=my-workspace');
-    expect(queryString).toContain('variables.SOURCE_REPO=spoke-repo');
-    expect(queryString).toContain('variables.PR_ID=7');
-    expect(queryString).toContain('variables.SOURCE_BRANCH=feature%2Fcool-stuff');
-    expect(queryString).toContain('variables.COMMENT_AUTHOR=user-123');
+    expect(queryString).toContain('variables%5B0%5D.key=SOURCE_WORKSPACE');
+    expect(queryString).toContain('variables%5B0%5D.value=my-workspace');
+    expect(queryString).toContain('variables%5B1%5D.key=SOURCE_REPO');
+    expect(queryString).toContain('variables%5B1%5D.value=spoke-repo');
+    expect(queryString).toContain('variables%5B2%5D.key=PR_ID');
+    expect(queryString).toContain('variables%5B2%5D.value=7');
+    expect(queryString).toContain('variables%5B3%5D.key=SOURCE_BRANCH');
+    expect(queryString).toContain('variables%5B3%5D.value=feature%2Fcool-stuff');
+    expect(queryString).toContain('variables%5B4%5D.key=COMMENT_TEXT');
+    expect(queryString).toContain('variables%5B5%5D.key=COMMENT_AUTHOR');
+    expect(queryString).toContain('variables%5B5%5D.value=user-123');
     // commentText with spaces is encoded as '+' or '%20' by URLSearchParams.
     // URLSearchParams in Node uses '+' for spaces.
-    expect(queryString).toContain('variables.COMMENT_TEXT=%40agent+please+help');
+    expect(queryString).toContain('variables%5B4%5D.value=%40agent+please+help');
   });
 
   it('safely encodes Unicode characters in variable values', () => {
@@ -121,7 +128,7 @@ describe('buildOndemandRequest', () => {
       makeConfig(),
     );
     // encoded form of "héllo 🚀": %C3%A9 for 'é', '+' for space, %F0%9F%9A%80 for 🚀
-    expect(queryParams.toString()).toContain('variables.COMMENT_TEXT=h%C3%A9llo+%F0%9F%9A%80');
+    expect(queryParams.toString()).toContain('variables%5B4%5D.value=h%C3%A9llo+%F0%9F%9A%80');
   });
 
   // -- YAML body -----------------------------------------------------------
@@ -134,5 +141,53 @@ describe('buildOndemandRequest', () => {
       makeConfig({ ondemandYamlTemplate: customYaml }),
     );
     expect(result.yamlBody).toBe(customYaml);
+  });
+
+  // -- Custom admin-defined pipeline variables ----------------------------
+
+  it('appends custom variables after the 6 built-ins (indexes start at 6)', () => {
+    const { queryParams } = buildOndemandRequest(
+      makeContext(),
+      makeConfig({
+        pipelineVariables: [
+          { key: 'GITHUB_TOKEN', value: 'ghp_abc', secured: true },
+          { key: 'REGION', value: 'eu-west-1', secured: false },
+        ],
+      }),
+    );
+    const qs = queryParams.toString();
+    expect(qs).toContain('variables%5B6%5D.key=GITHUB_TOKEN');
+    expect(qs).toContain('variables%5B6%5D.value=ghp_abc');
+    expect(qs).toContain('variables%5B6%5D.secured=true');
+    expect(qs).toContain('variables%5B7%5D.key=REGION');
+    expect(qs).toContain('variables%5B7%5D.value=eu-west-1');
+    // secured=false must not be emitted at all.
+    expect(qs).not.toContain('variables%5B7%5D.secured');
+  });
+
+  it('skips rows with an empty key without shifting indexes for the remainder', () => {
+    const { queryParams } = buildOndemandRequest(
+      makeContext(),
+      makeConfig({
+        pipelineVariables: [
+          { key: '', value: 'orphan', secured: false },
+          { key: 'KEEP_ME', value: 'yes', secured: false },
+        ],
+      }),
+    );
+    const qs = queryParams.toString();
+    expect(qs).not.toContain('orphan');
+    expect(qs).toContain('variables%5B6%5D.key=KEEP_ME');
+  });
+
+  it('throws CIProviderError for an invalid variable key', () => {
+    expect(() =>
+      buildOndemandRequest(
+        makeContext(),
+        makeConfig({
+          pipelineVariables: [{ key: '1BAD-KEY', value: 'x', secured: false }],
+        }),
+      ),
+    ).toThrow(CIProviderError);
   });
 });
