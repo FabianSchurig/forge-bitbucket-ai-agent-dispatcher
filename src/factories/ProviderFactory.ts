@@ -17,6 +17,7 @@ import { BitbucketPipelinesProvider } from '../providers/BitbucketPipelinesProvi
 import { BitbucketOndemandProvider } from '../providers/BitbucketOndemandProvider';
 import { JenkinsProvider } from '../providers/JenkinsProvider';
 import { getSettings } from '../storage';
+import { JENKINS_ENABLED } from '../featureFlags';
 
 /** Forge Storage key for the Jenkins API token (encrypted). */
 const JENKINS_TOKEN_KEY = 'jenkins-api-token';
@@ -56,6 +57,20 @@ export class ProviderFactory {
       }
 
       case 'JENKINS': {
+        // Compile-time guard: in the `lite` release variant JENKINS_ENABLED
+        // is rewritten to `false`, which strips the Jenkins integration from
+        // the bundle. If a stale project config still asks for Jenkins after
+        // an admin downgrades to the lite build, surface a clear error
+        // instead of silently calling out to a (now-undeclared) host.
+        if (!JENKINS_ENABLED) {
+          throw new CIProviderError(
+            'Jenkins',
+            'The Jenkins integration is not available in this build of the app. ' +
+              'Switch the project to a Bitbucket Pipelines provider, or install ' +
+              'the full build of the AI Agent Dispatcher.',
+          );
+        }
+
         // The token is provisioned outside the settings UI (for example via
         // Forge CLI or other admin tooling) and read here with getSecret().
         const jenkinsToken = await kvs.getSecret(JENKINS_TOKEN_KEY);

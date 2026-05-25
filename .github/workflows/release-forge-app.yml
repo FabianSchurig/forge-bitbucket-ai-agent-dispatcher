@@ -1,0 +1,191 @@
+name: Release Forge App to Production
+
+# This workflow promotes a tagged GitHub Release of the Forge app into the
+# **production** environment. It deliberately replaces the manual
+# `forge deploy -e production` step described in the Atlassian docs[1] so that
+# every production release is reproducible, traceable to a Git tag, and
+# auditable through the GitHub Actions log.
+#
+# Two variants are produced from the same source tree:
+#
+#   * `full`  – the manifest is shipped as-is, including the
+#               `permissions.external.fetch.backend: ['*']` wildcard that the
+#               Jenkins integration currently needs.
+#   * `lite`  – the wildcard egress block (and therefore the Jenkins
+#               integration) is stripped before deploy. This produces a
+#               minimum-permissions build that is easier for security-
+#               conscious customers to install. The `lite` variant is deployed
+#               under a *separate* Forge app id (`FORGE_APP_ID_LITE` secret)
+#               so it can be listed as its own Marketplace app[2][3].
+#
+# [1] https://developer.atlassian.com/platform/forge/staging-and-production-apps/
+# [2] https://developer.atlassian.com/platform/forge/distribute-your-apps/
+# [3] https://developer.atlassian.com/platform/marketplace/listing-forge-apps/
+
+on:
+  release:
+    # `published` covers both regular releases and pre-releases the moment
+    # they are made visible. Draft releases do not fire this event, which is
+    # exactly what we want: nothing ships to production until the maintainer
+    # explicitly publishes the release in the GitHub UI.
+    types: [published]
+  # Allow on-demand re-runs without cutting a new tag — handy if a production
+  # deploy fails for a transient reason (e.g. Atlassian API blip). The chosen
+  # tag is checked out instead of the default branch so the build is still
+  # reproducible from a Git ref.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to release (must already exist).'
+        required: true
+        type: string
+
+concurrency:
+  # Serialise production deploys per tag so two concurrent runs cannot race
+  # on the same Forge app id.
+  group: forge-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release ${{ matrix.variant }} variant to production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      # Independent variants must not abort each other: if the lite variant
+      # fails (e.g. `FORGE_APP_ID_LITE` not configured) we still want the
+      # full variant to ship.
+      fail-fast: false
+      matrix:
+        variant: [full, lite]
+
+    env:
+      # Same secrets the development workflow uses. The Forge CLI reads them
+      # directly to run headlessly without an interactive login prompt.
+      FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+      FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+      # Optional: when set, the `lite` variant is deployed under this app id
+      # instead of the one baked into `manifest.yml`. If empty, the `lite`
+      # variant is skipped (see the guard step below).
+      FORGE_APP_ID_LITE: ${{ secrets.FORGE_APP_ID_LITE }}
+
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          # Use the tag attached to the release (or the workflow_dispatch
+          # input). This guarantees production always builds from the exact
+          # commit the maintainer reviewed when publishing the release.
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Skip lite variant when FORGE_APP_ID_LITE is not configured
+        if: matrix.variant == 'lite' && env.FORGE_APP_ID_LITE == ''
+        run: |
+          echo "::notice::FORGE_APP_ID_LITE repository secret is not set; skipping the 'lite' variant."
+          echo "SKIP_VARIANT=true" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js 24
+        if: env.SKIP_VARIANT != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install project dependencies
+        if: env.SKIP_VARIANT != 'true'
+        # @forge/cli is a devDependency; npm ci puts it in node_modules/.bin.
+        # GitHub Actions does not add that directory to PATH for shell steps,
+        # so we append it here once for all subsequent steps.
+        run: |
+          npm ci
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Typecheck
+        if: env.SKIP_VARIANT != 'true'
+        # Gate production deploys on a clean TypeScript compile so type
+        # regressions cannot ship even when a release is cut independently
+        # of the main CI run.
+        run: npm run typecheck
+
+      - name: Lint TypeScript sources
+        if: env.SKIP_VARIANT != 'true'
+        # ESLint runs against src/ with --max-warnings 0 (see package.json).
+        run: npm run lint
+
+      - name: Run unit tests
+        if: env.SKIP_VARIANT != 'true'
+        # Run the Jest suite before any forge lint/deploy so production
+        # releases are always gated on a green test run, even when a tag
+        # is published outside of the main branch CI flow.
+        run: npm test
+
+      - name: Transform sources for "lite" variant
+        if: env.SKIP_VARIANT != 'true' && matrix.variant == 'lite'
+        # `yq` is preinstalled on GitHub-hosted ubuntu-latest runners
+        # (mikefarah/yq). Using it keeps the transformation declarative and
+        # comment-safe enough for our needs while avoiding any extra deps.
+        run: |
+          # 1. Drop the entire external-egress block so the lite variant has
+          #    no `'*'` wildcard and cannot reach Jenkins. The Forge app then
+          #    only needs the Bitbucket scopes already in `permissions.scopes`.
+          yq -i 'del(.permissions.external)' manifest.yml
+          # 2. Re-point the manifest at the dedicated lite app id so we are
+          #    deploying to a separate Marketplace app, not overwriting the
+          #    full variant.
+          yq -i ".app.id = \"$FORGE_APP_ID_LITE\"" manifest.yml
+          # 3. Flip the JENKINS_ENABLED compile-time feature flag to `false`
+          #    so the bundled UI hides the Jenkins option and the backend
+          #    ProviderFactory refuses to instantiate it. See
+          #    src/featureFlags.ts for the rationale.
+          sed -i 's/JENKINS_ENABLED = true/JENKINS_ENABLED = false/' \
+              src/featureFlags.ts
+          # Defensive guard: fail fast if the substitution did not take —
+          # otherwise the lite build would silently ship with Jenkins still on.
+          grep -q 'JENKINS_ENABLED = false' src/featureFlags.ts || {
+            echo "::error::Failed to disable JENKINS_ENABLED in src/featureFlags.ts"; exit 1;
+          }
+          # NOTE: deliberately do NOT `cat manifest.yml` here. The transformed
+          # manifest embeds the lite app id sourced from a repository secret
+          # (FORGE_APP_ID_LITE); printing it to the Actions log would risk
+          # accidental disclosure even with GitHub's secret masking. Log only
+          # non-sensitive fields if extra debugging is ever needed.
+          echo "---- manifest.yml after 'lite' transform: app id and external section redacted ----"
+          yq '(.app.id) = "***REDACTED***" | del(.permissions.external)' manifest.yml
+          echo "---- src/featureFlags.ts after 'lite' transform ----"
+          cat src/featureFlags.ts
+
+      - name: Disable Forge usage analytics (CI standard)
+        if: env.SKIP_VARIANT != 'true'
+        run: forge settings set usage-analytics false
+
+      - name: Lint Forge app
+        if: env.SKIP_VARIANT != 'true'
+        # Catches manifest errors before we burn a production deploy slot.
+        run: forge lint
+
+      - name: Deploy to production
+        if: env.SKIP_VARIANT != 'true'
+        # `--non-interactive` is required so the CLI does not prompt for
+        # confirmation on (potentially) breaking manifest changes.
+        run: forge deploy -e production --non-interactive
+
+      - name: Upgrade workspace installation (production)
+        if: env.SKIP_VARIANT != 'true'
+        # The owning workspace is installed manually the first time; from
+        # then on this step keeps it in sync with the latest production
+        # release. For the `lite` variant, the first-time install may be
+        # missing (typical on day one), so we tolerate failures there to
+        # avoid masking a successful deploy. For the `full` variant the
+        # upgrade is expected to succeed — any failure (auth issues,
+        # transient Forge outage, …) must fail the job so it is surfaced
+        # instead of silently hidden behind a green tick.
+        continue-on-error: ${{ matrix.variant == 'lite' }}
+        run: |
+          forge install \
+            --upgrade \
+            --non-interactive \
+            --site bitbucket.org/fabian-schurig \
+            --product bitbucket \
+            --environment production
