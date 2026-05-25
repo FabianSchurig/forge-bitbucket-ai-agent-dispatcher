@@ -102,6 +102,25 @@ jobs:
           npm ci
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
+      - name: Typecheck
+        if: env.SKIP_VARIANT != 'true'
+        # Gate production deploys on a clean TypeScript compile so type
+        # regressions cannot ship even when a release is cut independently
+        # of the main CI run.
+        run: npm run typecheck
+
+      - name: Lint TypeScript sources
+        if: env.SKIP_VARIANT != 'true'
+        # ESLint runs against src/ with --max-warnings 0 (see package.json).
+        run: npm run lint
+
+      - name: Run unit tests
+        if: env.SKIP_VARIANT != 'true'
+        # Run the Jest suite before any forge lint/deploy so production
+        # releases are always gated on a green test run, even when a tag
+        # is published outside of the main branch CI flow.
+        run: npm test
+
       - name: Transform sources for "lite" variant
         if: env.SKIP_VARIANT != 'true' && matrix.variant == 'lite'
         # `yq` is preinstalled on GitHub-hosted ubuntu-latest runners
@@ -127,8 +146,13 @@ jobs:
           grep -q 'JENKINS_ENABLED = false' src/featureFlags.ts || {
             echo "::error::Failed to disable JENKINS_ENABLED in src/featureFlags.ts"; exit 1;
           }
-          echo "---- manifest.yml after 'lite' transform ----"
-          cat manifest.yml
+          # NOTE: deliberately do NOT `cat manifest.yml` here. The transformed
+          # manifest embeds the lite app id sourced from a repository secret
+          # (FORGE_APP_ID_LITE); printing it to the Actions log would risk
+          # accidental disclosure even with GitHub's secret masking. Log only
+          # non-sensitive fields if extra debugging is ever needed.
+          echo "---- manifest.yml after 'lite' transform: app id and external section redacted ----"
+          yq '(.app.id) = "***REDACTED***" | del(.permissions.external)' manifest.yml
           echo "---- src/featureFlags.ts after 'lite' transform ----"
           cat src/featureFlags.ts
 
@@ -151,10 +175,13 @@ jobs:
         if: env.SKIP_VARIANT != 'true'
         # The owning workspace is installed manually the first time; from
         # then on this step keeps it in sync with the latest production
-        # release. `continue-on-error` ensures that a missing first-time
-        # install (typical for the lite variant on day one) does not mark
-        # the whole release as failed — the deploy itself already succeeded.
-        continue-on-error: true
+        # release. For the `lite` variant, the first-time install may be
+        # missing (typical on day one), so we tolerate failures there to
+        # avoid masking a successful deploy. For the `full` variant the
+        # upgrade is expected to succeed — any failure (auth issues,
+        # transient Forge outage, …) must fail the job so it is surfaced
+        # instead of silently hidden behind a green tick.
+        continue-on-error: ${{ matrix.variant == 'lite' }}
         run: |
           forge install \
             --upgrade \
