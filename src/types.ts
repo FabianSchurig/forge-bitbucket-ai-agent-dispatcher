@@ -129,7 +129,7 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
           - docker
         script:
           - export DOCKER_BUILDKIT=1
-          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.1.0
+          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:main
             variables:
               AGENT_TYPE: "copilot"
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
