@@ -3,7 +3,7 @@
 # ai-agent-pipe runtime image (Image A).
 #
 # This image is intentionally small.  Its only job is to orchestrate the
-# devcontainer build and launch the Copilot CLI; the heavy lifting happens
+# devcontainer build and launch the selected agent profile; the heavy lifting happens
 # inside the dynamically built agent image (Image B), see scripts/run-agent.sh.
 #
 # Layers:

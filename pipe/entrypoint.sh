@@ -9,7 +9,7 @@
 #         - they never appear in `ps` output or image layers.
 #   3. Configure ssh-agent with the supplied deploy key.
 #   4. Hand off to scripts/run-agent.sh, which does the actual clone +
-#      devcontainer build + Copilot invocation.
+#      devcontainer build + agent invocation.
 #
 # Inputs are read from environment variables.  The pipe accepts both the
 # Bitbucket Pipes convention (`PIPE_INPUT_FOO`) and the bare variable name
@@ -47,11 +47,19 @@ export SOURCE_BRANCH="$(pick PIPE_INPUT_SOURCE_BRANCH SOURCE_BRANCH)"
 export PR_ID="$(pick PIPE_INPUT_PR_ID PR_ID)"
 export COMMENT_TEXT="$(pick PIPE_INPUT_COMMENT_TEXT COMMENT_TEXT)"
 export COMMENT_AUTHOR="$(pick PIPE_INPUT_COMMENT_AUTHOR COMMENT_AUTHOR)"
+export AGENT_TYPE="$(pick PIPE_INPUT_AGENT_TYPE AGENT_TYPE)"
+export AGENT_TYPE="${AGENT_TYPE:-copilot}"
 
 # Secrets – never logged.
-COPILOT_TOKEN_VALUE="$(pick PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
-BB_TOKEN_VALUE="$(pick PIPE_SECRET_BB_TOKEN BB_TOKEN)"
-SSH_KEY_VALUE="$(pick PIPE_SECRET_SSH_KEY SSH_KEY)"
+COPILOT_TOKEN_VALUE="$(pick PIPE_INPUT_COPILOT_GITHUB_TOKEN PIPE_SECRET_COPILOT_GITHUB_TOKEN COPILOT_GITHUB_TOKEN PIPE_INPUT_COPILOT_TOKEN PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
+BB_TOKEN_VALUE="$(pick PIPE_INPUT_BITBUCKET_TOKEN PIPE_SECRET_BITBUCKET_TOKEN BITBUCKET_TOKEN PIPE_INPUT_BB_TOKEN PIPE_SECRET_BB_TOKEN BB_TOKEN)"
+BB_USERNAME_VALUE="$(pick PIPE_INPUT_BITBUCKET_USERNAME PIPE_SECRET_BITBUCKET_USERNAME BITBUCKET_USERNAME PIPE_INPUT_BB_USERNAME PIPE_SECRET_BB_USERNAME BB_USERNAME)"
+SSH_KEY_VALUE="$(pick PIPE_INPUT_SSH_KEY PIPE_SECRET_SSH_KEY SSH_KEY)"
+
+if [ "$AGENT_TYPE" != "copilot" ]; then
+    echo "ERROR: unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: copilot." >&2
+    exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Validate required inputs / secrets up-front and fail fast with a clear
@@ -63,8 +71,10 @@ SSH_KEY_VALUE="$(pick PIPE_SECRET_SSH_KEY SSH_KEY)"
     SOURCE_REPO \
     SOURCE_BRANCH \
     COMMENT_TEXT \
+    AGENT_TYPE \
     COPILOT_TOKEN_VALUE \
     BB_TOKEN_VALUE \
+    BB_USERNAME_VALUE \
     SSH_KEY_VALUE
 
 # ---------------------------------------------------------------------------
@@ -78,8 +88,9 @@ mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 
 umask 077
-printf '%s' "$COPILOT_TOKEN_VALUE" > "$SECRETS_DIR/copilot_token"
-printf '%s' "$BB_TOKEN_VALUE"      > "$SECRETS_DIR/bb_token"
+printf '%s' "$COPILOT_TOKEN_VALUE" > "$SECRETS_DIR/COPILOT_GITHUB_TOKEN"
+printf '%s' "$BB_TOKEN_VALUE"      > "$SECRETS_DIR/BITBUCKET_TOKEN"
+printf '%s' "$BB_USERNAME_VALUE"   > "$SECRETS_DIR/BITBUCKET_USERNAME"
 
 # SSH key handling.  We always normalise to ~/.ssh/id_ed25519 so run-agent.sh
 # can rely on a fixed path.  A trailing newline is added because some keys

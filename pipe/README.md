@@ -1,9 +1,13 @@
 # ai-agent-pipe
 
-A reusable **[Bitbucket Pipe][bb-pipes]** that runs the
-[ai-agent-hub](https://github.com/FabianSchurig/ai-agent-hub) workflow –
-clone a target repository, build its devcontainer (if any), and execute
-the GitHub Copilot CLI as a headless AI agent against it.
+A reusable **[Bitbucket Pipe][bb-pipes]** that clones a target repository,
+builds its devcontainer when present, layers an AI agent profile on top,
+and executes that agent with BuildKit-mounted secrets.
+
+The first shipped profile is `copilot`, which mirrors the working
+[ai-agent-hub](https://github.com/FabianSchurig/ai-agent-hub) flow: install
+Copilot CLI through a devcontainer feature, configure bb-mcp, replay
+devcontainer lifecycle commands, and run Copilot as the devcontainer user.
 
 It is designed to be invoked by the
 [forge-bitbucket-ai-agent-dispatcher](../README.md) Forge app via the
@@ -29,24 +33,25 @@ sequenceDiagram
     participant Git as Target Repo
     participant Docker as Docker Engine
     participant DevcontainerCLI as devcontainer CLI
-    participant Copilot as Copilot CLI
+    participant Agent as Agent profile
 
     Bitbucket->>Pipe: start container with inputs + secrets
     Pipe->>Git: git clone git@bitbucket.org:SOURCE_WORKSPACE/SOURCE_REPO.git
     alt .devcontainer exists
         Pipe->>DevcontainerCLI: devcontainer build --workspace-folder <repo>
         DevcontainerCLI->>Docker: build TARGET_IMAGE
-        Pipe->>Pipe: create wrapper devcontainer with Copilot feature
+        Pipe->>Pipe: create profile wrapper devcontainer
         Pipe->>DevcontainerCLI: devcontainer build wrapper → AGENT_IMAGE
         Pipe->>Docker: docker inspect AGENT_IMAGE → devcontainer.metadata
         Pipe->>Pipe: generate-lifecycle.js → lifecycle.sh
-        Pipe->>Docker: docker build -f Dockerfile.runner --secret … → run Copilot
-        Docker->>Copilot: copilot -p "$COMMENT_TEXT"
+        Pipe->>Docker: docker build -f Dockerfile.runner --secret … → run profile
+        Docker->>Agent: profile command -p "$COMMENT_TEXT"
     else no devcontainer
-        Pipe->>Docker: docker run wrapper image with mounted workspace
-        Docker->>Copilot: copilot -p "$COMMENT_TEXT"
+        Pipe->>Docker: docker build generated base image
+        Pipe->>DevcontainerCLI: layer profile wrapper
+        Pipe->>Docker: docker build -f Dockerfile.runner --secret … → run profile
     end
-    Copilot-->>Pipe: output logs
+      Agent-->>Pipe: output logs
     Pipe-->>Bitbucket: exit code and logs
 ```
 
@@ -55,7 +60,7 @@ sequenceDiagram
 | Image | Built when | Contains | Purpose |
 |------|------------|----------|---------|
 | **A – runtime** | once, by CI, published to GHCR | `git`, `docker` CLI, `node`, `@devcontainers/cli`, scripts | Orchestration only – kept small |
-| **B – agent** | dynamically at runtime, inside the Pipe | Target devcontainer + Copilot CLI + lifecycle replay | Execution; secrets mounted at `docker build` time and never persisted |
+| **B – agent** | dynamically at runtime, inside the Pipe | Target devcontainer or generated base + selected agent profile + lifecycle replay | Execution; secrets mounted at `docker build` time and never persisted |
 
 ---
 
@@ -63,14 +68,16 @@ sequenceDiagram
 
 | Variable | Required | Description |
 |---|:--:|---|
+| `AGENT_TYPE` |  | Agent profile to run. Defaults to `copilot`; currently this is the only shipped profile. |
 | `SOURCE_WORKSPACE` | ✅ | Bitbucket workspace slug of the spoke repository. |
 | `SOURCE_REPO` | ✅ | Repository slug of the spoke repository. |
 | `SOURCE_BRANCH` | ✅ | Branch of the spoke repository to check out. |
 | `COMMENT_TEXT` | ✅ | Raw text of the triggering PR comment – used as the Copilot prompt. |
 | `PR_ID` |  | Pull-request numeric ID (audit only). |
 | `COMMENT_AUTHOR` |  | Atlassian account ID of the comment author (audit only). |
-| `COPILOT_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the CLI. |
-| `BB_TOKEN` | ✅ 🔒 | Bitbucket API token for status/comment callbacks. |
+| `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
+| `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. `BB_TOKEN` is accepted as a legacy alias. |
+| `BITBUCKET_USERNAME` | ✅ 🔒 | Bitbucket username used by bb-mcp. `BB_USERNAME` is accepted as a legacy alias. |
 | `SSH_KEY` | ✅ 🔒 | SSH private key used to clone the spoke repository. |
 
 > 🔒 = **must** be configured as a *Secured* Bitbucket repository variable
@@ -96,20 +103,28 @@ pipelines:
   default:
     - step:
         name: Run ai-agent-pipe
+        size: 2x
         services: [ docker ]
         script:
           - export DOCKER_BUILDKIT=1
-          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.1.0
+          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.2.0
             variables:
+              AGENT_TYPE: copilot
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
               SOURCE_REPO: $SOURCE_REPO
               SOURCE_BRANCH: $SOURCE_BRANCH
               PR_ID: $PR_ID
               COMMENT_TEXT: $COMMENT_TEXT
               COMMENT_AUTHOR: $COMMENT_AUTHOR
-              COPILOT_TOKEN: $COPILOT_TOKEN
-              BB_TOKEN: $BB_TOKEN
+              COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              BITBUCKET_TOKEN: $BITBUCKET_TOKEN
+              BITBUCKET_USERNAME: $BITBUCKET_USERNAME
               SSH_KEY: $SSH_KEY
+
+definitions:
+  services:
+    docker:
+      memory: 4096
 ```
 
 The dispatcher will substitute the dollar-prefixed values from the
@@ -123,18 +138,26 @@ pipelines:
     run-agent:
       - step:
           name: Run ai-agent-pipe
+          size: 2x
           services: [ docker ]
           script:
             - export DOCKER_BUILDKIT=1
             - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
               variables:
+                AGENT_TYPE: 'copilot'
                 SOURCE_WORKSPACE: 'my-workspace'
                 SOURCE_REPO: 'my-spoke-repo'
                 SOURCE_BRANCH: 'feature/x'
                 COMMENT_TEXT: '@agent please fix the failing tests'
-                COPILOT_TOKEN: $COPILOT_TOKEN
-                BB_TOKEN: $BB_TOKEN
+                COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+                BITBUCKET_TOKEN: $BITBUCKET_TOKEN
+                BITBUCKET_USERNAME: $BITBUCKET_USERNAME
                 SSH_KEY: $SSH_KEY
+
+definitions:
+  services:
+    docker:
+      memory: 4096
 ```
 
 ### Local debugging with `docker run`
@@ -142,19 +165,23 @@ pipelines:
 ```bash
 docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    -e AGENT_TYPE=copilot \
     -e SOURCE_WORKSPACE=my-workspace \
     -e SOURCE_REPO=my-spoke-repo \
     -e SOURCE_BRANCH=main \
     -e COMMENT_TEXT='@agent hello' \
-    -e COPILOT_TOKEN \
-    -e BB_TOKEN \
+    -e COPILOT_GITHUB_TOKEN \
+    -e BITBUCKET_TOKEN \
+    -e BITBUCKET_USERNAME \
     -e SSH_KEY="$(cat ~/.ssh/id_ed25519)" \
     ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 ```
 
-> The pipe requires a working Docker daemon (mounted via
-> `/var/run/docker.sock` or by enabling the `docker` Pipelines service)
-> because the agent image is built and executed at runtime.
+> The pipe requires a working Docker daemon because the agent image is
+> built and executed at runtime. In Bitbucket Pipelines, enable the
+> `docker` service, use `size: 2x` for realistic devcontainer builds, and
+> allocate at least 4096 MB to the Docker service. Runtime v3 is preferred
+> because it supports the BuildKit features this pipe uses.
 
 ---
 
@@ -171,11 +198,14 @@ pipe/
 │   ├── validate-config.sh              # fail-fast input validation
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
-    ├── mcp-config.json                 # MCP config shipped with the pipe
-    └── wrapper-devcontainer/
-        ├── Dockerfile                  # layers Copilot CLI on $BASE_IMAGE
-        ├── devcontainer.json
-        └── mcp-config.json
+  └── agents/
+    └── copilot/
+      ├── agent.env               # command, flags, model defaults
+      ├── copilot-instructions.md # profile instructions copied to ~/.copilot
+      ├── mcp-config.json         # bb-mcp config template
+      └── wrapper-devcontainer/
+        ├── Dockerfile          # layers profile features on $BASE_IMAGE
+        └── devcontainer.json
 ```
 
 ---

@@ -11,6 +11,9 @@
 #   BB_TEST_REPO          - Repo slug of the test target repo
 #   BB_TEST_BRANCH        - Branch to run against (defaults to `main`)
 #
+# The Bitbucket test repository must define these secured repository variables:
+#   COPILOT_GITHUB_TOKEN, BITBUCKET_TOKEN, BITBUCKET_USERNAME, SSH_KEY
+#
 # Trigger: after `Publish Pipe` succeeds on `main`, or manually.
 # ---------------------------------------------------------------------------
 name: Smoke Test Pipe
@@ -60,46 +63,41 @@ jobs:
           # Compose the on-demand YAML that runs the freshly-published Pipe.
           # The YAML is embedded directly in the API request body.
           read -r -d '' YAML <<YAML || true
-          image: atlassian/default-image:4
+          image: atlassian/default-image:5
           pipelines:
             default:
               - step:
                   name: ai-agent-pipe smoke test
+                  size: 2x
                   services: [ docker ]
                   script:
                     - export DOCKER_BUILDKIT=1
                     - pipe: docker://${IMAGE_REPO}:${IMAGE_TAG}
                       variables:
+                        AGENT_TYPE: "copilot"
                         SOURCE_WORKSPACE: "${BB_TEST_WORKSPACE}"
                         SOURCE_REPO: "${BB_TEST_REPO}"
                         SOURCE_BRANCH: "${BRANCH}"
                         COMMENT_TEXT: "smoke test: respond with 'pong'"
-                        COPILOT_TOKEN: \$COPILOT_TOKEN
-                        BB_TOKEN: \$BB_TOKEN
+                        COPILOT_GITHUB_TOKEN: \$COPILOT_GITHUB_TOKEN
+                        BITBUCKET_TOKEN: \$BITBUCKET_TOKEN
+                        BITBUCKET_USERNAME: \$BITBUCKET_USERNAME
                         SSH_KEY: \$SSH_KEY
+
+          definitions:
+            services:
+              docker:
+                memory: 4096
           YAML
 
-          # Build the JSON request body.  Bitbucket's on-demand pipelines
-          # API accepts YAML in the `target.configuration` field.
-          BODY=$(jq -n \
-              --arg branch "$BRANCH" \
-              --arg yaml "$YAML" \
-              '{
-                  target: {
-                      ref_type: "branch",
-                      type: "pipeline_ref_target",
-                      ref_name: $branch,
-                      selector: { type: "custom" }
-                  },
-                  configuration: { source: $yaml }
-              }')
+          urlencode() { jq -nr --arg value "$1" '$value|@uri'; }
 
-          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines/"
+          API="https://api.bitbucket.org/2.0/repositories/${BB_TEST_WORKSPACE}/${BB_TEST_REPO}/pipelines/?target.ref_type=branch&target.ref_name=$(urlencode "$BRANCH")&target.selector.type=default"
           RESPONSE=$(curl -fsSL \
               -u "${BB_USERNAME}:${BB_APP_PASSWORD}" \
-              -H 'Content-Type: application/json' \
+              -H 'Content-Type: application/yaml' \
               -X POST "$API" \
-              --data "$BODY")
+              --data-binary "$YAML")
 
           PIPELINE_UUID=$(echo "$RESPONSE" | jq -r .uuid)
           echo "Triggered pipeline: $PIPELINE_UUID"

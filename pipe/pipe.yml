@@ -12,9 +12,9 @@
 
 name: ai-agent-pipe
 description: >-
-  Run the ai-agent-hub workflow (devcontainer build + GitHub Copilot CLI
-  agent execution) inside a Bitbucket on-demand pipeline.  Designed to be
-  invoked by the forge-bitbucket-ai-agent-dispatcher Forge app.
+  Run an AI agent profile inside a Bitbucket pipeline. The pipe clones the
+  target repository, builds its devcontainer when present, layers the selected
+  agent profile on top, and executes the agent with BuildKit-mounted secrets.
 
 # The image tag is rewritten by the publish workflow to a concrete semver /
 # sha tag on every push to `main` and on every GitHub Release.  The `:latest`
@@ -23,7 +23,7 @@ description: >-
 image: ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 
 # Semver of the pipe itself.  Bump on every behavioural change.
-version: 0.1.0
+version: 0.2.0
 
 # Inputs the dispatcher (or a human operator) can supply.  Each input is
 # mapped to an env var of the same name by entrypoint.sh.
@@ -33,6 +33,10 @@ version: 0.1.0
 # the variables the Forge dispatcher already emits (see
 # src/pipelinePayload.ts) so no translation layer is needed.
 variables:
+  AGENT_TYPE:
+    description: Agent profile to run. Currently supported value is "copilot".
+    required: false
+    default: "copilot"
   SOURCE_WORKSPACE:
     description: Bitbucket workspace slug of the spoke repository.
     required: true
@@ -58,11 +62,14 @@ variables:
   # These MUST be marked as "Secured" in the Bitbucket repository variables
   # UI so they are masked in build logs and never written to disk in plain
   # text outside of /tmp (which is tmpfs in Pipelines runners).
-  COPILOT_TOKEN:
-    description: GitHub Copilot token used by the Copilot CLI.
+  COPILOT_GITHUB_TOKEN:
+    description: GitHub Copilot token used by the Copilot profile. COPILOT_TOKEN is accepted as a legacy alias.
     required: true
-  BB_TOKEN:
-    description: Bitbucket API token used for status/comment callbacks.
+  BITBUCKET_TOKEN:
+    description: Bitbucket API token used by bb-mcp. BB_TOKEN is accepted as a legacy alias.
+    required: true
+  BITBUCKET_USERNAME:
+    description: Bitbucket username used by bb-mcp for API authentication. BB_USERNAME is accepted as a legacy alias.
     required: true
   SSH_KEY:
     description: SSH private key (PEM) used to clone the spoke repository.

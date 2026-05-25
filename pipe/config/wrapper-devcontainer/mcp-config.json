@@ -1,4 +1,0 @@
-{
-    "//": "Model Context Protocol (MCP) configuration consumed by the Copilot CLI inside the layered agent image.  Add MCP servers here that should be available to every agent run, regardless of the spoke repository.",
-    "mcpServers": {}
-}

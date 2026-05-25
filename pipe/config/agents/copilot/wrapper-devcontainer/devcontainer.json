@@ -1,0 +1,15 @@
+{
+    "name": "ai-agent-pipe-copilot-wrapper",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "BASE_IMAGE": "${localEnv:BASE_IMAGE}"
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/copilot-cli:latest": {}
+    },
+    "containerEnv": {
+        "GH_COPILOT_NO_TELEMETRY": "1"
+    }
+}
