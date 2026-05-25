@@ -49,10 +49,18 @@ WORKSPACE_DIR="repo"
 TARGET_IMAGE="ai-agent-pipe/target:${SOURCE_REPO}-${SOURCE_BRANCH}"
 AGENT_IMAGE="ai-agent-pipe/agent:${SOURCE_REPO}-${SOURCE_BRANCH}"
 
-# Sanitise the tag – docker image references only allow [a-z0-9._-].
-sanitize() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-' ; }
-TARGET_IMAGE="$(sanitize "$TARGET_IMAGE")"
-AGENT_IMAGE="$(sanitize "$AGENT_IMAGE")"
+# Sanitise the tag – docker image tags only allow [a-zA-Z0-9._-].
+# We keep the name portion (before the colon) intact since it may contain '/'.
+sanitize_tag() {
+    local ref="$1"
+    local name="${ref%%:*}"
+    local tag="${ref#*:}"
+    # Lowercase and replace invalid chars in the tag only.
+    tag="$(echo "$tag" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+    echo "${name}:${tag}"
+}
+TARGET_IMAGE="$(sanitize_tag "$TARGET_IMAGE")"
+AGENT_IMAGE="$(sanitize_tag "$AGENT_IMAGE")"
 
 # ---------------------------------------------------------------------------
 # Step 1 – clone the spoke repository.
@@ -122,6 +130,14 @@ const entries = Array.isArray(parsed) ? parsed : [parsed];
 const found = [...entries].reverse().find((entry) => entry && entry.remoteUser);
 process.stdout.write(found ? String(found.remoteUser) : "root");
 ')"
+
+# Validate CONTAINER_USER against a strict pattern to prevent command injection
+# from a malicious devcontainer.json remoteUser value.  Only allow typical
+# Unix usernames (lowercase alphanum, dash, underscore) or numeric UIDs.
+if ! echo "$CONTAINER_USER" | grep -qE '^[a-z_][a-z0-9_-]*$|^[0-9]+$'; then
+    echo "WARNING: CONTAINER_USER '$CONTAINER_USER' contains invalid characters. Falling back to 'root'." >&2
+    CONTAINER_USER="root"
+fi
 echo "==> Container user: $CONTAINER_USER"
 
 # ---------------------------------------------------------------------------
@@ -168,7 +184,7 @@ RUN set -eu; \
         apk add --no-cache ca-certificates curl gettext; \
     fi; \
     if command -v curl >/dev/null 2>&1; then \
-        curl -fsSL https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/main/install.sh \
+        curl -fsSL https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/f46771ef34da3b9b9a10d59341d3c5f640e97536/install.sh \
             | sh -s -- --binary bb-mcp; \
     fi; \
     chmod +x /tmp/lifecycle.sh; \

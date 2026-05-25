@@ -50,11 +50,12 @@ export COMMENT_AUTHOR="$(pick PIPE_INPUT_COMMENT_AUTHOR COMMENT_AUTHOR)"
 export AGENT_TYPE="$(pick PIPE_INPUT_AGENT_TYPE AGENT_TYPE)"
 export AGENT_TYPE="${AGENT_TYPE:-copilot}"
 
-# Secrets – never logged.
-COPILOT_TOKEN_VALUE="$(pick PIPE_INPUT_COPILOT_GITHUB_TOKEN PIPE_SECRET_COPILOT_GITHUB_TOKEN COPILOT_GITHUB_TOKEN PIPE_INPUT_COPILOT_TOKEN PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
-BB_TOKEN_VALUE="$(pick PIPE_INPUT_BITBUCKET_TOKEN PIPE_SECRET_BITBUCKET_TOKEN BITBUCKET_TOKEN PIPE_INPUT_BB_TOKEN PIPE_SECRET_BB_TOKEN BB_TOKEN)"
-BB_USERNAME_VALUE="$(pick PIPE_INPUT_BITBUCKET_USERNAME PIPE_SECRET_BITBUCKET_USERNAME BITBUCKET_USERNAME PIPE_INPUT_BB_USERNAME PIPE_SECRET_BB_USERNAME BB_USERNAME)"
-SSH_KEY_VALUE="$(pick PIPE_INPUT_SSH_KEY PIPE_SECRET_SSH_KEY SSH_KEY)"
+# Secrets – never logged.  Exported so validate-config.sh (a child process)
+# can see them during validation.
+export COPILOT_TOKEN_VALUE="$(pick PIPE_INPUT_COPILOT_GITHUB_TOKEN PIPE_SECRET_COPILOT_GITHUB_TOKEN COPILOT_GITHUB_TOKEN PIPE_INPUT_COPILOT_TOKEN PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
+export BB_TOKEN_VALUE="$(pick PIPE_INPUT_BITBUCKET_TOKEN PIPE_SECRET_BITBUCKET_TOKEN BITBUCKET_TOKEN PIPE_INPUT_BB_TOKEN PIPE_SECRET_BB_TOKEN BB_TOKEN)"
+export BB_USERNAME_VALUE="$(pick PIPE_INPUT_BITBUCKET_USERNAME PIPE_SECRET_BITBUCKET_USERNAME BITBUCKET_USERNAME PIPE_INPUT_BB_USERNAME PIPE_SECRET_BB_USERNAME BB_USERNAME)"
+export SSH_KEY_VALUE="$(pick PIPE_INPUT_SSH_KEY PIPE_SECRET_SSH_KEY SSH_KEY)"
 
 if [ "$AGENT_TYPE" != "copilot" ]; then
     echo "ERROR: unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: copilot." >&2
@@ -107,10 +108,16 @@ chmod 700 "$HOME/.ssh"
 } > "$HOME/.ssh/id_ed25519"
 chmod 600 "$HOME/.ssh/id_ed25519"
 
-# Trust bitbucket.org's host key out-of-the-box so the clone does not
-# prompt.  We use the published fingerprints from Bitbucket's docs rather
-# than `StrictHostKeyChecking=no` so we still get MITM protection.
-ssh-keyscan -t rsa,ecdsa,ed25519 bitbucket.org >> "$HOME/.ssh/known_hosts" 2>/dev/null
+# Trust bitbucket.org's host keys out-of-the-box so the clone does not
+# prompt.  We embed the published keys from Bitbucket's documentation
+# (https://support.atlassian.com/bitbucket-cloud/docs/configure-ssh-and-two-step-verification/)
+# rather than running ssh-keyscan at runtime, which would be vulnerable to
+# MITM during the scan.
+cat >> "$HOME/.ssh/known_hosts" <<'KNOWN_HOSTS'
+bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e5POber2cZ5F5PVstBEE0GbCOphq2Bm0RB/gEEhGOlSkaKNDWKKWmqtWvWBNXvHTCmG4pCl4gvYVhqsXj/pxEX9GrGdJmxZP0gSKi3BDpFPiVBLLI6M4Xl5jAFhlcNM0zmzX30RbJMJPH6+b3c1Elu2VJEJmqJwWGEG8Qc6PFKfFpKkHJhBZ/cPMD+W4c50v2IkRXgMHIJx0Mx+xNkMWNB90K0SmFNeTLmPIbOQZndOJMGU+Ql3Q48XH9JiDLbhJIl+V/k8N+8r3eMfTjmPRjsm+M2PiWtfi6YSRBI/qlNE/zrdKaBTMqrRxQ1gKVRHVDR1LIGGpYVZOZyJBkS8xtEzW7gSH3NxEPlFEE7p06Ba/R5zF/RF/3ISVtFbOvzBbkx+SV3V/a2vlZVYzzPL9n/B+5hkB7nVbNSynIaOSGqEm/Fy6MZ2lGISoGMIX5E49L7mMZT1FdaVLfjSQmc2YYAP0Ia4j0mm0=
+bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
+bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO
+KNOWN_HOSTS
 chmod 644 "$HOME/.ssh/known_hosts"
 
 # Start an ssh-agent for this step and load the key.

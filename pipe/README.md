@@ -84,9 +84,13 @@ sequenceDiagram
 > so it is masked in build logs and only ever materialised on tmpfs at
 > runtime. Tokens are never baked into the published image.
 
-The variable names match exactly what the Forge dispatcher already emits
-(see [`src/pipelinePayload.ts`](../src/pipelinePayload.ts)), so no
-translation layer is needed.
+The non-secret variable names (`SOURCE_WORKSPACE`, `SOURCE_REPO`, etc.)
+match what the Forge dispatcher emits as pipeline variables (see
+[`src/ondemandPipelinePayload.ts`](../src/ondemandPipelinePayload.ts)).
+Secret variables (`COPILOT_GITHUB_TOKEN`, `BITBUCKET_TOKEN`,
+`BITBUCKET_USERNAME`, `SSH_KEY`) are **not** sent by the dispatcher —
+they must be configured as *Secured* repository or workspace variables in
+Bitbucket so they are available at pipeline runtime.
 
 ---
 
@@ -220,9 +224,9 @@ pipe/
   packages: write }` – the minimum needed to push to GHCR.
 * `entrypoint.sh` never echoes secret values; only variable *names* are
   passed to `validate-config.sh`.
-* `ssh-keyscan` populates `known_hosts` with Bitbucket's published host
-  keys so the clone is MITM-protected without disabling
-  `StrictHostKeyChecking`.
+* `entrypoint.sh` embeds Bitbucket's published host keys in
+  `known_hosts` at build time (no runtime `ssh-keyscan`) so the clone
+  is MITM-protected without disabling `StrictHostKeyChecking`.
 
 [bb-pipes]: https://support.atlassian.com/bitbucket-cloud/docs/use-bitbucket-pipes/
 [bb-ondemand]: https://developer.atlassian.com/cloud/bitbucket/rest/api-group-pipelines/

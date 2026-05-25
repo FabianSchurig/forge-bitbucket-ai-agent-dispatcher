@@ -98,7 +98,7 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
           - docker
         script:
           - export DOCKER_BUILDKIT=1
-          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
+          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.1.0
             variables:
               AGENT_TYPE: "copilot"
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
@@ -107,6 +107,9 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
               PR_ID: $PR_ID
               COMMENT_TEXT: $COMMENT_TEXT
               COMMENT_AUTHOR: $COMMENT_AUTHOR
+              # The following must be configured as Secured repository or
+              # workspace variables in Bitbucket – they are NOT sent by the
+              # Forge dispatcher.
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
               BITBUCKET_USERNAME: $BITBUCKET_USERNAME

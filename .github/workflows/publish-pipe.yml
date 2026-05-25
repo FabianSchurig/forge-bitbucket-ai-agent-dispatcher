@@ -48,6 +48,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Lowercase IMAGE_REPO
+        id: repo
+        run: echo "image_repo=$(echo '${{ env.IMAGE_REPO }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU (for cross-arch builds)
         uses: docker/setup-qemu-action@v3
 
@@ -71,7 +75,7 @@ jobs:
         with:
           # Lowercase via the action itself (the env above is already
           # lowercase for our repo, but kept consistent).
-          images: ${{ env.IMAGE_REPO }}
+          images: ${{ steps.repo.outputs.image_repo }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag

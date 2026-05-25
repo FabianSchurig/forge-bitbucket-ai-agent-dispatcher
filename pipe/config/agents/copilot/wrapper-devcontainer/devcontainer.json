@@ -7,7 +7,7 @@
         }
     },
     "features": {
-        "ghcr.io/devcontainers/features/copilot-cli:latest": {}
+        "ghcr.io/devcontainers/features/copilot-cli:1": {}
     },
     "containerEnv": {
         "GH_COPILOT_NO_TELEMETRY": "1"
