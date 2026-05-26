@@ -75,7 +75,6 @@ fi
     AGENT_TYPE \
     COPILOT_TOKEN_VALUE \
     BB_TOKEN_VALUE \
-    BB_USERNAME_VALUE \
     SSH_KEY_VALUE
 
 # ---------------------------------------------------------------------------

@@ -76,8 +76,8 @@ sequenceDiagram
 | `PR_ID` |  | Pull-request numeric ID (audit only). |
 | `COMMENT_AUTHOR` |  | Atlassian account ID of the comment author (audit only). |
 | `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
-| `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. `BB_TOKEN` is accepted as a legacy alias. |
-| `BITBUCKET_USERNAME` | ✅ 🔒 | Bitbucket username used by bb-mcp. `BB_USERNAME` is accepted as a legacy alias. |
+| `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. With `BITBUCKET_USERNAME` it uses username/token auth; without a username it uses Bearer auth. `BB_TOKEN` is accepted as a legacy alias. |
+| `BITBUCKET_USERNAME` | 🔒 | Optional Bitbucket username used with `BITBUCKET_TOKEN` for username/token auth. Omit it to use Bearer auth. `BB_USERNAME` is accepted as a legacy alias. |
 | `SSH_KEY` | ✅ 🔒 | SSH private key used to clone the spoke repository. |
 
 > 🔒 = **must** be configured as a *Secured* Bitbucket repository variable
@@ -88,9 +88,14 @@ The non-secret variable names (`SOURCE_WORKSPACE`, `SOURCE_REPO`, etc.)
 match what the Forge dispatcher emits as pipeline variables (see
 [`src/ondemandPipelinePayload.ts`](../src/ondemandPipelinePayload.ts)).
 Secret variables (`COPILOT_GITHUB_TOKEN`, `BITBUCKET_TOKEN`,
-`BITBUCKET_USERNAME`, `SSH_KEY`) are **not** sent by the dispatcher —
-they must be configured as *Secured* repository or workspace variables in
-Bitbucket so they are available at pipeline runtime.
+`SSH_KEY`, and optionally `BITBUCKET_USERNAME`) are **not** sent by the
+dispatcher — they must be configured as *Secured* repository or workspace
+variables in Bitbucket so they are available at pipeline runtime.
+
+When `BITBUCKET_USERNAME` is configured, bb-mcp receives both username and
+token for username/token authentication. When only `BITBUCKET_TOKEN` is
+configured, bb-mcp receives the token without a username and uses Bearer
+authentication.
 
 ---
 
@@ -122,7 +127,9 @@ pipelines:
               COMMENT_AUTHOR: $COMMENT_AUTHOR
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
-              BITBUCKET_USERNAME: $BITBUCKET_USERNAME
+              # Optional: set BITBUCKET_USERNAME for username/token auth.
+              # Omit it to use BITBUCKET_TOKEN as Bearer auth.
+              # BITBUCKET_USERNAME: $BITBUCKET_USERNAME
               SSH_KEY: $SSH_KEY
 
 definitions:
@@ -155,7 +162,9 @@ pipelines:
                 COMMENT_TEXT: '@agent please fix the failing tests'
                 COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
                 BITBUCKET_TOKEN: $BITBUCKET_TOKEN
-                BITBUCKET_USERNAME: $BITBUCKET_USERNAME
+                # Optional: set BITBUCKET_USERNAME for username/token auth.
+                # Omit it to use BITBUCKET_TOKEN as Bearer auth.
+                # BITBUCKET_USERNAME: $BITBUCKET_USERNAME
                 SSH_KEY: $SSH_KEY
 
 definitions:
@@ -176,7 +185,6 @@ docker run --rm \
     -e COMMENT_TEXT='@agent hello' \
     -e COPILOT_GITHUB_TOKEN \
     -e BITBUCKET_TOKEN \
-    -e BITBUCKET_USERNAME \
     -e SSH_KEY="$(cat ~/.ssh/id_ed25519)" \
     ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 ```

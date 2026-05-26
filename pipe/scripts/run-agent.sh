@@ -180,10 +180,10 @@ USER root
 RUN set -eu; \
     if command -v apt-get >/dev/null 2>&1; then \
         apt-get update; \
-        apt-get install -y --no-install-recommends ca-certificates curl gettext-base; \
+        apt-get install -y --no-install-recommends ca-certificates curl gettext-base jq; \
         rm -rf /var/lib/apt/lists/*; \
     elif command -v apk >/dev/null 2>&1; then \
-        apk add --no-cache ca-certificates curl gettext; \
+        apk add --no-cache ca-certificates curl gettext jq; \
     fi; \
     if command -v curl >/dev/null 2>&1; then \
         curl -fsSL https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/f46771ef34da3b9b9a10d59341d3c5f640e97536/install.sh \
@@ -206,9 +206,14 @@ RUN --mount=type=secret,id=COPILOT_GITHUB_TOKEN,mode=0444 \
     export BITBUCKET_USERNAME="$(cat /run/secrets/BITBUCKET_USERNAME)"; \
     mkdir -p "$HOME/.copilot"; \
     if command -v envsubst >/dev/null 2>&1; then \
-        envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' < /tmp/mcp-template.json > "$HOME/.copilot/mcp-config.json"; \
+        envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' < /tmp/mcp-template.json > /tmp/mcp-config.rendered.json; \
     else \
-        cp /tmp/mcp-template.json "$HOME/.copilot/mcp-config.json"; \
+        cp /tmp/mcp-template.json /tmp/mcp-config.rendered.json; \
+    fi; \
+    if [ -z "$BITBUCKET_USERNAME" ] && command -v jq >/dev/null 2>&1; then \
+        jq 'del(.mcpServers.bitbucket.env.BITBUCKET_USERNAME)' /tmp/mcp-config.rendered.json > "$HOME/.copilot/mcp-config.json"; \
+    else \
+        cp /tmp/mcp-config.rendered.json "$HOME/.copilot/mcp-config.json"; \
     fi; \
     cp /tmp/copilot-instructions.md "$HOME/.copilot/copilot-instructions.md"; \
     MODEL_FLAG=""; \

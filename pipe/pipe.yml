@@ -23,7 +23,7 @@ description: >-
 image: ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 
 # Semver of the pipe itself.  Bump on every behavioural change.
-version: 0.2.0
+version: 0.2.1
 
 # Inputs the dispatcher (or a human operator) can supply.  Each input is
 # mapped to an env var of the same name by entrypoint.sh.
@@ -66,11 +66,12 @@ variables:
     description: GitHub Copilot token used by the Copilot profile. COPILOT_TOKEN is accepted as a legacy alias.
     required: true
   BITBUCKET_TOKEN:
-    description: Bitbucket API token used by bb-mcp. BB_TOKEN is accepted as a legacy alias.
+    description: Bitbucket API token used by bb-mcp. With BITBUCKET_USERNAME it uses username/token auth; without a username it uses Bearer auth. BB_TOKEN is accepted as a legacy alias.
     required: true
   BITBUCKET_USERNAME:
-    description: Bitbucket username used by bb-mcp for API authentication. BB_USERNAME is accepted as a legacy alias.
-    required: true
+    description: Optional Bitbucket username used with BITBUCKET_TOKEN for username/token auth. Omit it to use Bearer auth. BB_USERNAME is accepted as a legacy alias.
+    required: false
+    default: ""
   SSH_KEY:
     description: SSH private key (PEM) used to clone the spoke repository.
     required: true

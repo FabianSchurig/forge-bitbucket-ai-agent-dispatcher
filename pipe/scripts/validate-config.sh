@@ -31,7 +31,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "Hint: non-secret variables (SOURCE_WORKSPACE, SOURCE_REPO, etc.) are" >&2
     echo "dispatched by the Forge app via pipeline variables (see" >&2
     echo "src/ondemandPipelinePayload.ts).  Secret variables (COPILOT_GITHUB_TOKEN," >&2
-    echo "BITBUCKET_TOKEN, BITBUCKET_USERNAME, SSH_KEY) must be configured as" >&2
-    echo "secured variables in the Bitbucket repository or workspace settings." >&2
+    echo "BITBUCKET_TOKEN, SSH_KEY, and optionally BITBUCKET_USERNAME) must be" >&2
+    echo "configured as secured variables in the Bitbucket repository or workspace settings." >&2
     exit 1
 fi
