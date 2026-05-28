@@ -9,6 +9,8 @@
     "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
+    "scan": "npx --yes osv-scanner@latest scan source --config=osv-scanner.toml --lockfile=package-lock.json",
+    "audit:runtime": "npm audit --omit=dev --audit-level=critical",
     "deploy": "forge deploy",
     "install:app": "forge install"
   },
@@ -21,7 +23,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
-    "@babel/preset-env": "^7.23.0",
+    "@babel/preset-env": "^7.29.7",
     "@babel/preset-react": "^7.23.0",
     "@babel/preset-typescript": "^7.23.0",
     "@forge/cli": "^12.17.0",

@@ -1,0 +1,96 @@
+name: Security Scan
+
+# Mirrors Atlassian Marketplace Ecoscanner's "Forge Dependency Scanner" so
+# that GHSA / OSV findings in dependencies are caught locally and on PRs,
+# before they show up as Ecoscanner tickets after release.
+#
+# References:
+#   - https://developer.atlassian.com/platform/marketplace/ecoscanner/
+#   - https://google.github.io/osv-scanner/
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    # Weekly re-scan so newly-published advisories against unchanged
+    # dependencies surface even when nobody is pushing code.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: security-scan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV-Scanner (lockfile)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to upload SARIF to GitHub code scanning.
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run osv-scanner
+        id: scan
+        uses: google/osv-scanner-action/osv-scanner-action@v2.2.4
+        with:
+          # Scan the npm lockfile (transitive graph, no install needed) and
+          # honour the in-repo configuration file (osv-scanner.toml) which
+          # ignores dev-only deps and time-boxed upstream advisories.
+          scan-args: |-
+            --config=osv-scanner.toml
+            --format=sarif
+            --output=osv-results.sarif
+            --lockfile=package-lock.json
+        # The scanner exits non-zero when vulnerabilities are found; we still
+        # want the SARIF uploaded so reviewers can see what failed.
+        continue-on-error: true
+
+      - name: Upload SARIF to code scanning
+        if: always() && hashFiles('osv-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+
+      - name: Fail job if osv-scanner found vulnerabilities
+        if: steps.scan.outcome == 'failure'
+        run: |
+          echo "::error::osv-scanner reported vulnerabilities (see SARIF results in the Security tab)."
+          exit 1
+
+  npm-audit-runtime:
+    name: npm audit (runtime tree)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependency tree
+        # Only the production tree ships to Forge. The gate is `critical`
+        # rather than `high` because several long-standing `high` advisories
+        # live inside Atlassian-owned packages (@forge/*, @atlaskit/*) and
+        # have no fix we can pull in without breaking compatibility; OSV-
+        # Scanner above tracks those with time-boxed ignores in
+        # osv-scanner.toml.
+        run: npm audit --omit=dev --audit-level=critical
