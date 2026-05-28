@@ -272,6 +272,43 @@ See the Atlassian docs on [staging and production apps](https://developer.atlass
 ---
 
 
+## Security Scanning
+
+Atlassian Marketplace runs the [Ecoscanner](https://developer.atlassian.com/platform/marketplace/ecoscanner/) "Forge Dependency Scanner" against every published version, which raises a P2 ticket for any high-severity GHSA/OSV finding in `package.json` / `package-lock.json` (including transitive dependencies). To catch those before submission, this repository runs an equivalent scan locally and in CI.
+
+### What runs
+
+- **`.github/workflows/security-scan.yml`** – on every push to `main`, every pull request, weekly on a schedule, and on demand. It runs two jobs:
+  - `osv-scan` – [google/osv-scanner](https://google.github.io/osv-scanner/) against `package-lock.json`. Findings are uploaded as SARIF to the **Security → Code scanning** tab and the job fails when an unignored vulnerability is found.
+  - `npm-audit-runtime` – `npm audit --omit=dev --audit-level=critical` so we have a second opinion against npm's advisory feed for the production tree.
+- **`.github/dependabot.yml`** – grouped weekly npm and GitHub Actions updates so transitive bumps (like the one that fixed `@babel/plugin-transform-modules-systemjs`) land automatically.
+
+### Run the same check locally
+
+```bash
+npm run scan            # osv-scanner against the lockfile, honours osv-scanner.toml
+npm run audit:runtime   # npm audit of the production tree only
+```
+
+`npm run scan` invokes `osv-scanner` via `npx`, so no extra devDependency is added.
+
+### Accepting an upstream finding
+
+When a vulnerability lives inside an Atlassian-owned package (`@forge/*`, `@atlaskit/*`) and there is no fix we can pull in without breaking compatibility, add a time-boxed entry to `osv-scanner.toml`:
+
+```toml
+[[IgnoredVulns]]
+id = "GHSA-xxxx-xxxx-xxxx"
+ignoreUntil = 2026-08-26   # ~90 days out; forces re-evaluation
+reason = "uuid – transitive of @forge/react; awaiting upstream bump."
+```
+
+Dev-only dependencies are already filtered out via a `[[PackageOverrides]]` block with `group = "dev"` because the Forge runtime bundle only ships the production tree.
+
+
+---
+
+
 ## Project Structure
 
 ```

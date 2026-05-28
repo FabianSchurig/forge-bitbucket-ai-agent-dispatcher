@@ -1,0 +1,38 @@
+# OSV-Scanner configuration.
+# Mirrors the scope of Atlassian Ecoscanner's Forge Dependency Scanner: only the
+# code that actually ships to the Forge runtime matters for vulnerability gating.
+# See https://google.github.io/osv-scanner/configuration/ for the schema.
+
+# Ignore npm dev-dependencies. The Forge runtime bundle is produced from the
+# `dependencies` tree only; `devDependencies` (build tools, test runners, the
+# Forge CLI and its transitive graph) are never deployed to Atlassian. Treating
+# them as in-scope just creates noise that masks real runtime findings.
+[[PackageOverrides]]
+ecosystem = "npm"
+group = "dev"
+ignore = true
+reason = "Dev-only dependency; not shipped to the Forge runtime."
+
+# Runtime-tree advisories that originate inside Atlassian-owned packages
+# (@forge/*, @atlaskit/*) and have no fix we can pull in without breaking
+# compatibility with the Forge runtime. Each entry expires after ~90 days so
+# the team is forced to re-evaluate (e.g. after a new @forge/react release).
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+ignoreUntil = 2026-08-26
+reason = "uuid – transitive of @forge/react, @forge/bridge and @atlaskit/react-ufo; awaiting upstream bump."
+
+[[IgnoredVulns]]
+id = "GHSA-jxxr-4gwj-5jf2"
+ignoreUntil = 2026-08-26
+reason = "brace-expansion – transitive of @forge/* runtime packages; awaiting upstream bump."
+
+[[IgnoredVulns]]
+id = "GHSA-q3j6-qgpj-74h6"
+ignoreUntil = 2026-08-26
+reason = "fast-uri – transitive of @forge/bridge; awaiting upstream bump."
+
+[[IgnoredVulns]]
+id = "GHSA-v39h-62p7-jpjc"
+ignoreUntil = 2026-08-26
+reason = "fast-uri – transitive of @forge/bridge; awaiting upstream bump."

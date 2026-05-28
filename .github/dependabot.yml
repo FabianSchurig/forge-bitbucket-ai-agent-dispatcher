@@ -1,0 +1,49 @@
+version: 2
+
+updates:
+  # Keep npm dependencies (direct + their lockfile) current so transitive
+  # vulnerabilities like GHSA-fv7c-fp4j-7gwp are picked up automatically.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    groups:
+      babel:
+        patterns:
+          - '@babel/*'
+          - 'babel-*'
+      forge:
+        patterns:
+          - '@forge/*'
+      types:
+        patterns:
+          - '@types/*'
+      eslint:
+        patterns:
+          - 'eslint'
+          - '@typescript-eslint/*'
+      jest:
+        patterns:
+          - 'jest'
+          - 'jest-*'
+          - '@testing-library/*'
+          - 'babel-jest'
+
+  # Keep GitHub Actions versions pinned to current major refs up to date so
+  # the security workflow itself doesn't go stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    labels:
+      - dependencies
+      - github-actions
