@@ -138,6 +138,11 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
               PR_ID: $PR_ID
               COMMENT_TEXT: $COMMENT_TEXT
               COMMENT_AUTHOR: $COMMENT_AUTHOR
+              # Populated when the run is dispatched from the Jira issue-context
+              # panel (empty for PR-comment dispatches). The runner reads these
+              # to know which Jira issue the agent is working on.
+              JIRA_ISSUE_KEY: $JIRA_ISSUE_KEY
+              JIRA_ISSUE_SUMMARY: $JIRA_ISSUE_SUMMARY
               # The following must be configured as Secured repository or
               # workspace variables in Bitbucket – they are NOT sent by the
               # Forge dispatcher.

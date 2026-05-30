@@ -12,14 +12,17 @@
  */
 
 const mockRequestBitbucket = jest.fn();
+const mockRequestJira = jest.fn();
 const mockFetch = jest.fn();
 
 const api = {
   asApp: jest.fn().mockReturnValue({
     requestBitbucket: mockRequestBitbucket,
+    requestJira: mockRequestJira,
   }),
   asUser: jest.fn().mockReturnValue({
     requestBitbucket: mockRequestBitbucket,
+    requestJira: mockRequestJira,
   }),
   fetch: mockFetch,
 };
@@ -44,4 +47,4 @@ function route(strings: TemplateStringsArray, ...values: unknown[]): string {
 }
 
 export default api;
-export { storage, route, mockRequestBitbucket, mockFetch };
+export { storage, route, mockRequestBitbucket, mockRequestJira, mockFetch };
