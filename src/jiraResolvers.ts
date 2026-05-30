@@ -10,13 +10,21 @@
  *
  * Authorisation
  * -------------
- * Reads (issue details, repository list) use api.asUser() so Forge enforces the
- * caller's own Jira/Bitbucket permissions — a user can only ever see issues and
- * repositories they are allowed to see.  The branch-create + pipeline-trigger
- * writes use api.asApp() because the Forge app principal is what holds the
- * write:repository / write:pipeline scopes.  Note that any user who can view the
- * issue can currently trigger these writes; add manifest displayConditions (or a
- * resolver-side permission check) if tighter user-level gating is required.
+ * The repository list read uses api.asUser() so Forge enforces the caller's own
+ * Bitbucket permissions — a user can only ever see repositories they are allowed
+ * to see.  The branch-create + pipeline-trigger writes use api.asApp() because
+ * the Forge app principal is what holds the write:repository / write:pipeline
+ * scopes.  Note that any user who can view the issue can currently trigger these
+ * writes; add manifest displayConditions (or a resolver-side permission check) if
+ * tighter user-level gating is required.
+ *
+ * Jira access
+ * -----------
+ * This app deliberately requests no Jira (site) scopes: Forge forbids combining
+ * Bitbucket workspace scopes with Jira site scopes in one app.  The panel
+ * therefore never calls the Jira REST API — it reads the issue key from the
+ * issue-context extension (view.getContext()) and derives the branch name from
+ * that key alone.
  */
 
 import Resolver from '@forge/resolver';
@@ -42,8 +50,7 @@ export interface RepositoryOption {
 /** Context returned to the panel describing the active Jira issue. */
 export interface JiraContext {
   issueKey: string;
-  summary: string;
-  /** A ready-to-use, injection-safe branch name derived from the summary. */
+  /** A ready-to-use, injection-safe branch name derived from the issue key. */
   suggestedBranch: string;
 }
 
@@ -59,11 +66,12 @@ export interface DispatchAgentResult {
 const resolver = new Resolver();
 
 /**
- * Step 3.2 — Returns the active issue's key + summary and a suggested branch.
+ * Returns the active issue's key and a suggested branch name.
  *
- * The issue summary is read with requestJira (asUser) so the caller's Jira
- * permissions apply.  The summary is immediately turned into a safe branch
- * suggestion via buildBranchName().
+ * The issue key is supplied by the panel from the issue-context extension
+ * (view.getContext()); this app holds no Jira scopes and therefore never calls
+ * the Jira REST API.  The key is turned into a safe branch suggestion via
+ * buildBranchName(); the user can refine it in the panel before dispatching.
  */
 resolver.define(
   'getJiraContext',
@@ -73,26 +81,9 @@ resolver.define(
       throw new CIProviderError(PROVIDER_NAME, 'No Jira issue key was provided.');
     }
 
-    const response = await api
-      .asUser()
-      .requestJira(route`/rest/api/3/issue/${issueKey}?fields=summary`);
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new CIProviderError(
-        PROVIDER_NAME,
-        `Failed to load Jira issue ${issueKey}: ${response.status} – ${body}`,
-      );
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    const fields = (data?.fields as Record<string, unknown> | undefined) ?? {};
-    const summary = (fields.summary as string) ?? '';
-
     return {
       issueKey,
-      summary,
-      suggestedBranch: buildBranchName(issueKey, summary),
+      suggestedBranch: buildBranchName(issueKey, ''),
     };
   },
 );

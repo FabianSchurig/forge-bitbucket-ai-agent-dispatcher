@@ -35,22 +35,16 @@ beforeEach(() => {
 });
 
 describe('getJiraContext', () => {
-  it('returns the issue summary and a suggested branch name', async () => {
-    mockRequestJira.mockResolvedValueOnce(
-      res({ key: 'PROJ-7', fields: { summary: 'Fix the login bug' } }),
-    );
-
+  it('returns the issue key and a suggested branch name without calling Jira', async () => {
     const result = (await invoke('getJiraContext', { issueKey: 'PROJ-7' })) as {
       issueKey: string;
-      summary: string;
       suggestedBranch: string;
     };
 
     expect(result.issueKey).toBe('PROJ-7');
-    expect(result.summary).toBe('Fix the login bug');
-    expect(result.suggestedBranch).toBe('PROJ-7-fix-the-login-bug');
-    // Issue read must go through requestJira.
-    expect(mockRequestJira).toHaveBeenCalledTimes(1);
+    expect(result.suggestedBranch).toBe('PROJ-7');
+    // This app holds no Jira scopes: the resolver must never call requestJira.
+    expect(mockRequestJira).not.toHaveBeenCalled();
   });
 
   it('throws when no issueKey is supplied', async () => {

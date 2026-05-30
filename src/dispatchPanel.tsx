@@ -54,7 +54,6 @@ export const DispatchPanel = (): React.ReactElement => {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [issueKey, setIssueKey] = useState('');
-  const [summary, setSummary] = useState('');
   const [branch, setBranch] = useState('');
 
   const [repos, setRepos] = useState<RepositoryOption[]>([]);
@@ -63,8 +62,10 @@ export const DispatchPanel = (): React.ReactElement => {
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<DispatchResult | null>(null);
 
-  // On mount: read the issue key from the Forge context, then load the issue
-  // context (summary + suggested branch) and the list of repositories.
+  // On mount: read the issue key from the Forge issue-context extension, then
+  // derive a suggested branch and load the list of repositories.  This app holds
+  // no Jira scopes, so only the issue key (provided in the context) is available
+  // — there is no Jira REST call for the issue summary.
   useEffect(() => {
     const load = async (): Promise<void> => {
       try {
@@ -73,18 +74,16 @@ export const DispatchPanel = (): React.ReactElement => {
         const issue = ext?.issue as Record<string, unknown> | undefined;
         const key = (issue?.key as string) ?? '';
 
-        // Fetch issue context and repositories in parallel.
+        // Fetch the suggested branch and repositories in parallel.
         const [context, repoList] = await Promise.all([
           invoke('getJiraContext', { issueKey: key }) as Promise<{
             issueKey: string;
-            summary: string;
             suggestedBranch: string;
           }>,
           invoke('fetchRepositories', {}) as Promise<RepositoryOption[]>,
         ]);
 
         setIssueKey(context.issueKey);
-        setSummary(context.summary);
         setBranch(context.suggestedBranch);
         setRepos(repoList);
       } catch (err) {
@@ -108,7 +107,6 @@ export const DispatchPanel = (): React.ReactElement => {
         workspace: selectedRepo.workspace,
         repoSlug: selectedRepo.repoSlug,
         issueKey,
-        issueSummary: summary,
         branch,
       })) as DispatchResult;
       setResult(dispatchResult);
@@ -135,9 +133,7 @@ export const DispatchPanel = (): React.ReactElement => {
   return (
     <Stack space="space.150">
       <Heading as="h3">AI Agent Dispatcher</Heading>
-      <Text>
-        Issue {issueKey}: {summary}
-      </Text>
+      <Text>Issue {issueKey}</Text>
 
       <Label labelFor="repo-select">Target repository</Label>
       <Select

@@ -60,8 +60,11 @@ permissions:
     - write:pipeline:bitbucket
     - write:pullrequest:bitbucket
     - storage:app
-    # Read Jira issue details (summary) from the issue-context panel resolver.
-    - read:jira-work
+    # NOTE: This app intentionally requests no Jira (site) scopes.  Forge does
+    # not allow mixing Bitbucket workspace scopes with Jira site scopes in a
+    # single app ("Workspace scopes can not be used with site scopes"), so the
+    # jira:issueContext panel relies solely on the issue key provided in the
+    # extension context (view.getContext()) and never calls the Jira REST API.
   external:
     fetch:
       # Wildcard allows outbound requests to any domain.  This is a temporary

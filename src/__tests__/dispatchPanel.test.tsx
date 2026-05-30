@@ -100,7 +100,6 @@ function wireInvoke(dispatchResult?: unknown): void {
     if (key === 'getJiraContext') {
       return Promise.resolve({
         issueKey: 'PROJ-7',
-        summary: 'Fix the login bug',
         suggestedBranch: 'PROJ-7-fix-the-login-bug',
       });
     }
@@ -131,7 +130,7 @@ describe('DispatchPanel', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Fix the login bug/)).toBeInTheDocument();
+      expect(screen.getByText(/Issue PROJ-7/)).toBeInTheDocument();
     });
     const branchField = screen.getByTestId('branch-field') as HTMLInputElement;
     expect(branchField.value).toBe('PROJ-7-fix-the-login-bug');
