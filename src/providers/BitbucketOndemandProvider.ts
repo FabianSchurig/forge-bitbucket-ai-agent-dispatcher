@@ -47,7 +47,6 @@ export class BitbucketOndemandProvider implements CIProvider {
   // CIProvider.triggerBuild
   // -----------------------------------------------------------------------
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async triggerBuild(_payload: BuildPayload, context: DispatchContext): Promise<BuildResult> {
     // Build + validate the on-demand request.  The helper throws
     // CIProviderError on invalid slug/branch values before we ever touch
