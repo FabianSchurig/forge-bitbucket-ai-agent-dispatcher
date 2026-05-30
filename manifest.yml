@@ -26,6 +26,7 @@ modules:
       resource: dispatch-panel-ui
       render: native
       title: AI Agent Dispatcher
+      label: AI Agent Dispatcher
       resolver:
         function: jira-resolver
 

@@ -141,7 +141,7 @@ export const DispatchPanel = (): React.ReactElement => {
 
       <Label labelFor="repo-select">Target repository</Label>
       <Select
-        id="repo-select"
+        inputId="repo-select"
         appearance="default"
         placeholder="Select a repository…"
         options={repos.map((r) => ({ label: r.fullName, value: r.fullName }))}

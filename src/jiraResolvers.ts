@@ -1,7 +1,7 @@
 /**
  * Backend resolvers for the Jira issue-context "AI Agent Dispatcher" panel.
  *
- * The panel (src/dispatchPanel.tsx) is a Forge Custom UI Kit view that invokes
+ * The panel (src/dispatchPanel.tsx) is a Forge UI Kit (native) view that invokes
  * these resolvers via @forge/bridge.  Each resolver is intentionally thin and
  * delegates the security-relevant work (slug/branch validation, variable
  * encoding) to the shared helpers in src/ondemandPipelinePayload.ts and
@@ -14,8 +14,9 @@
  * caller's own Jira/Bitbucket permissions — a user can only ever see issues and
  * repositories they are allowed to see.  The branch-create + pipeline-trigger
  * writes use api.asApp() because the Forge app principal is what holds the
- * write:repository / write:pipeline scopes; user-level gating for those costly
- * actions is provided by the panel's manifest display conditions.
+ * write:repository / write:pipeline scopes.  Note that any user who can view the
+ * issue can currently trigger these writes; add manifest displayConditions (or a
+ * resolver-side permission check) if tighter user-level gating is required.
  */
 
 import Resolver from '@forge/resolver';
@@ -151,7 +152,6 @@ resolver.define(
       issueKey?: string;
       issueSummary?: string;
       branch?: string;
-      projectUuid?: string;
     };
   }): Promise<DispatchAgentResult> => {
     try {
@@ -172,9 +172,16 @@ resolver.define(
           ? sanitizeBranch(payload.branch)
           : buildBranchName(issueKey, issueSummary);
 
-      const config = await getSettings(payload?.projectUuid);
+      // Look up the repository once to resolve its default branch and the
+      // project/repo UUIDs.  Passing those UUIDs into getSettings means a
+      // Jira-dispatched run honours the same project- or repo-scoped config
+      // (pipelineVariables, ondemandYamlTemplate, …) that PR-comment dispatch
+      // uses for the target Bitbucket repo.
+      const repoInfo = await fetchRepoInfo(workspace, repoSlug);
 
-      await createBranch(workspace, repoSlug, branch);
+      const config = await getSettings(repoInfo.projectUuid, repoInfo.repoUuid);
+
+      await createBranch(workspace, repoSlug, branch, repoInfo.mainBranch);
 
       const request = buildJiraDispatchRequest(
         { workspace, repoSlug, branch, issueKey, issueSummary },
@@ -221,17 +228,22 @@ resolver.define(
 );
 
 /**
- * Creates a branch from the repository's main branch.
- *
- * Idempotent: if Bitbucket reports the branch already exists (HTTP 409) we
- * treat that as success so re-dispatching onto the same issue branch works.
+ * Repository details resolved from a single Bitbucket repository lookup.
  */
-async function createBranch(
-  workspace: string,
-  repoSlug: string,
-  branch: string,
-): Promise<void> {
-  // Look up the repo's default branch to use as the new branch's base.
+interface RepoInfo {
+  /** Default branch name used as the base for new branches. */
+  mainBranch: string;
+  /** Bitbucket project UUID (used for project-scoped config). */
+  projectUuid?: string;
+  /** Bitbucket repository UUID (used for repo-scoped config). */
+  repoUuid?: string;
+}
+
+/**
+ * Loads the target repository to resolve its default branch and the
+ * project/repo UUIDs used for scoped settings resolution.
+ */
+async function fetchRepoInfo(workspace: string, repoSlug: string): Promise<RepoInfo> {
   const repoResponse = await api
     .asApp()
     .requestBitbucket(route`/2.0/repositories/${workspace}/${repoSlug}`);
@@ -247,7 +259,26 @@ async function createBranch(
   const repoData = (await repoResponse.json()) as Record<string, unknown>;
   const mainBranch =
     ((repoData?.mainbranch as Record<string, unknown> | undefined)?.name as string) ?? 'main';
+  const projectUuid = (repoData?.project as Record<string, unknown> | undefined)?.uuid as
+    | string
+    | undefined;
+  const repoUuid = repoData?.uuid as string | undefined;
 
+  return { mainBranch, projectUuid, repoUuid };
+}
+
+/**
+ * Creates a branch from the repository's main branch.
+ *
+ * Idempotent: if Bitbucket reports the branch already exists (HTTP 409) we
+ * treat that as success so re-dispatching onto the same issue branch works.
+ */
+async function createBranch(
+  workspace: string,
+  repoSlug: string,
+  branch: string,
+  mainBranch: string,
+): Promise<void> {
   const createResponse = await api.asApp().requestBitbucket(
     route`/2.0/repositories/${workspace}/${repoSlug}/refs/branches`,
     {
