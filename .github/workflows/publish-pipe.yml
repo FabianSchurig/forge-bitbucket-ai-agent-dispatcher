@@ -71,7 +71,7 @@ jobs:
       #   - sha-<short> always
       - name: Compute image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           # Lowercase via the action itself (the env above is already
           # lowercase for our repo, but kept consistent).
