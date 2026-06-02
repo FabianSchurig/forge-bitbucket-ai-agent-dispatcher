@@ -71,9 +71,16 @@ Additional admin-defined variables (including secrets) can be configured per pro
 ## Jira issue-context dispatcher
 
 The app also exposes a Forge `jira:issueContext` panel (a **cross-product app**,
-so it installs on Jira as well as Bitbucket). It lets a developer kick off an
-AI-agent pipeline straight from the issue they are working on, without writing a
-PR comment.
+so it can be installed on Jira in addition to Bitbucket). It lets a developer
+kick off an AI-agent pipeline straight from the issue they are working on,
+without writing a PR comment.
+
+> **Installing on Jira is a separate step.** Forge installations are
+> *per-product*: deploying the app and installing it on Bitbucket does **not**
+> make the panel appear in Jira. You must run `forge install … --product jira`
+> against a Jira site as well (see [Install the app on your Jira
+> site](#5-install-the-app-on-your-jira-site)). Until that install exists, the
+> app will not show up under **Jira → Apps** or on the issue view.
 
 **Flow**
 
@@ -175,6 +182,23 @@ forge install --non-interactive --site bitbucket.org/fabian-schurig --product bi
 > **Important:** The first install must be performed manually from a developer machine.
 > The CI/CD pipeline uses `forge install --upgrade` which requires an existing installation UUID.
 
+### 5. Install the app on your Jira site
+
+Because this is a cross-product app, the `jira:issueContext` panel only appears
+once the app is **also** installed on a Jira site. Forge tracks Bitbucket and
+Jira installations separately, so this is a distinct install from step 4:
+
+```bash
+forge install --non-interactive --site your-team.atlassian.net --product jira --environment development
+```
+
+> **Important:** Replace `your-team.atlassian.net` with your own Jira site. Like
+> the Bitbucket install, the first Jira install must be performed manually; the
+> CI/CD pipeline then keeps it in sync with `forge install --upgrade` (gated on
+> the `JIRA_SITE` repository variable — see [CI/CD](#cicd--automated-deployment-github-actions)).
+> After installing, open any Jira issue and look for the **AI Agent Dispatcher**
+> context panel on the issue view.
+
 ---
 
 ## Configuration (Project Settings)
@@ -270,6 +294,19 @@ Add the following **Repository Secrets** under
 5. `forge lint` – validate the manifest and code
 6. `forge deploy -e development` – deploy new code
 7. `forge install --upgrade --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development` – apply the update to the installed workspace
+8. `forge install --upgrade … --product jira …` – keep the Jira installation in sync (only runs on `main` when the `JIRA_SITE` repository variable is set; skipped otherwise)
+
+### Optional: Jira installation
+
+The `jira:issueContext` panel only appears in Jira once the app is installed on
+a Jira site (a separate install from Bitbucket — see
+[Install the app on your Jira site](#5-install-the-app-on-your-jira-site)). To
+let CI keep that Jira installation up to date, add a **Repository Variable**
+(`Settings → Secrets and variables → Actions → Variables`):
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_SITE` | Your Jira site hostname (e.g. `your-team.atlassian.net`). When unset, the Jira upgrade step is skipped so forks without a Jira site are unaffected. |
 
 ### Production deployments
 

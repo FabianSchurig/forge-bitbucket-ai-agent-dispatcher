@@ -101,3 +101,22 @@ jobs:
             --site bitbucket.org/fabian-schurig \
             --product bitbucket \
             --environment development
+
+      - name: Upgrade Installation on Jira
+        # Forge installations are per-product: deploying the app and upgrading
+        # the Bitbucket installation does NOT make the jira:issueContext panel
+        # appear in Jira. The app must be installed separately on a Jira site
+        # before it shows up under "Apps" / on the issue view. This step keeps
+        # that Jira installation in sync once it has been created manually.
+        #
+        # The Jira site is supplied via the `JIRA_SITE` repository variable
+        # (e.g. your-team.atlassian.net) so forks without a Jira site simply
+        # skip this step instead of failing.
+        if: github.ref == 'refs/heads/main' && vars.JIRA_SITE != ''
+        run: |
+          forge install \
+            --upgrade \
+            --non-interactive \
+            --site "${{ vars.JIRA_SITE }}" \
+            --product jira \
+            --environment development
