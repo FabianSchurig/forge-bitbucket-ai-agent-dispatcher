@@ -15,9 +15,9 @@
     "install:app": "forge install"
   },
   "dependencies": {
-    "@forge/api": "^7.2.1",
-    "@forge/kvs": "^1.6.4",
-    "@forge/react": "^11.16.1",
+    "@forge/api": "^7.2.2",
+    "@forge/kvs": "^1.6.5",
+    "@forge/react": "^11.17.0",
     "@forge/resolver": "^1.5.5",
     "react": "^18.2.0"
   },
@@ -27,7 +27,7 @@
     "@babel/preset-react": "^7.29.7",
     "@babel/preset-typescript": "^7.29.7",
     "@eslint/js": "^10.0.1",
-    "@forge/cli": "^12.21.0",
+    "@forge/cli": "^12.22.0",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
