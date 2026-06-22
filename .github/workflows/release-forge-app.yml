@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout the released tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Use the tag attached to the release (or the workflow_dispatch
           # input). This guarantees production always builds from the exact
