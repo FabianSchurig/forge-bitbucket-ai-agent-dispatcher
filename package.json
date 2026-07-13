@@ -39,6 +39,6 @@
     "eslint": "^10.4.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "typescript": "^5.3.0"
+    "typescript": "^7.0.2"
   }
 }
