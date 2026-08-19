@@ -1,0 +1,12 @@
+{
+    "name": "ai-agent-pipe-cursor-wrapper",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "BASE_IMAGE": "${localEnv:BASE_IMAGE}"
+        }
+    },
+    "features": {
+        "ghcr.io/stu-bell/devcontainer-features/cursor-cli:0": {}
+    }
+}

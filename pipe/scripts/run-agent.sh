@@ -151,10 +151,11 @@ mkdir -p "$RUNNER_DIR"
 cp "$LIFECYCLE_SCRIPT" "$RUNNER_DIR/lifecycle.sh"
 cp -R "$WORKDIR/repo" "$RUNNER_DIR/$WORKSPACE_DIR"
 cp "$AGENT_CONFIG_DIR/mcp-config.json" "$RUNNER_DIR/mcp-config.json"
-if [ -f "$AGENT_CONFIG_DIR/copilot-instructions.md" ]; then
-    cp "$AGENT_CONFIG_DIR/copilot-instructions.md" "$RUNNER_DIR/copilot-instructions.md"
+INSTRUCTIONS_FILE="${AGENT_INSTRUCTIONS_FILE:-}"
+if [ -n "$INSTRUCTIONS_FILE" ] && [ -f "$AGENT_CONFIG_DIR/$INSTRUCTIONS_FILE" ]; then
+    cp "$AGENT_CONFIG_DIR/$INSTRUCTIONS_FILE" "$RUNNER_DIR/agent-instructions.md"
 else
-    : > "$RUNNER_DIR/copilot-instructions.md"
+    : > "$RUNNER_DIR/agent-instructions.md"
 fi
 printf '%s' "$COMMENT_TEXT" > "$RUNNER_DIR/prompt.txt"
 
@@ -167,13 +168,15 @@ ARG WORKSPACE_DIR=repo
 ARG AGENT_COMMAND=copilot
 ARG AGENT_FLAGS="--allow-all-tools --output-format json --no-ask-user"
 ARG AGENT_MODEL=""
+ARG AGENT_MCP_CONFIG_PATH=".copilot/mcp-config.json"
+ARG AGENT_INSTRUCTIONS_PATH=".copilot/copilot-instructions.md"
 ARG CONTAINER_USER=root
 
 COPY ${WORKSPACE_DIR} /workspaces/${WORKSPACE_DIR}
 COPY lifecycle.sh /tmp/lifecycle.sh
 COPY prompt.txt /tmp/prompt.txt
 COPY mcp-config.json /tmp/mcp-template.json
-COPY copilot-instructions.md /tmp/copilot-instructions.md
+COPY agent-instructions.md /tmp/agent-instructions.md
 WORKDIR /workspaces/${WORKSPACE_DIR}
 
 USER root
@@ -198,24 +201,27 @@ USER ${CONTAINER_USER}
 # --mount=type=secret keeps tokens out of the final image; they exist only
 # during the RUN that mounts them.
 RUN --mount=type=secret,id=COPILOT_GITHUB_TOKEN,mode=0444 \
+    --mount=type=secret,id=CURSOR_API_KEY,mode=0444 \
     --mount=type=secret,id=BITBUCKET_TOKEN,mode=0444 \
     --mount=type=secret,id=BITBUCKET_USERNAME,mode=0444 \
     set -eu; \
     export COPILOT_GITHUB_TOKEN="$(cat /run/secrets/COPILOT_GITHUB_TOKEN)"; \
+    export CURSOR_API_KEY="$(cat /run/secrets/CURSOR_API_KEY)"; \
     export BITBUCKET_TOKEN="$(cat /run/secrets/BITBUCKET_TOKEN)"; \
     export BITBUCKET_USERNAME="$(cat /run/secrets/BITBUCKET_USERNAME)"; \
-    mkdir -p "$HOME/.copilot"; \
+    mkdir -p "$HOME/$(dirname "$AGENT_MCP_CONFIG_PATH")"; \
     if command -v envsubst >/dev/null 2>&1; then \
         envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' < /tmp/mcp-template.json > /tmp/mcp-config.rendered.json; \
     else \
         cp /tmp/mcp-template.json /tmp/mcp-config.rendered.json; \
     fi; \
     if [ -z "$BITBUCKET_USERNAME" ] && command -v jq >/dev/null 2>&1; then \
-        jq 'del(.mcpServers.bitbucket.env.BITBUCKET_USERNAME)' /tmp/mcp-config.rendered.json > "$HOME/.copilot/mcp-config.json"; \
+        jq 'del(.mcpServers.bitbucket.env.BITBUCKET_USERNAME)' /tmp/mcp-config.rendered.json > "$HOME/$AGENT_MCP_CONFIG_PATH"; \
     else \
-        cp /tmp/mcp-config.rendered.json "$HOME/.copilot/mcp-config.json"; \
+        cp /tmp/mcp-config.rendered.json "$HOME/$AGENT_MCP_CONFIG_PATH"; \
     fi; \
-    cp /tmp/copilot-instructions.md "$HOME/.copilot/copilot-instructions.md"; \
+    mkdir -p "$HOME/$(dirname "$AGENT_INSTRUCTIONS_PATH")"; \
+    cp /tmp/agent-instructions.md "$HOME/$AGENT_INSTRUCTIONS_PATH"; \
     MODEL_FLAG=""; \
     if [ -n "$AGENT_MODEL" ]; then MODEL_FLAG="--model=$AGENT_MODEL"; fi; \
     $AGENT_COMMAND -p "$(cat /tmp/prompt.txt)" $AGENT_FLAGS $MODEL_FLAG
@@ -230,8 +236,11 @@ DOCKER_BUILDKIT=1 docker build \
     --build-arg "AGENT_COMMAND=$AGENT_COMMAND" \
     --build-arg "AGENT_FLAGS=$AGENT_FLAGS" \
     --build-arg "AGENT_MODEL=${AGENT_MODEL:-}" \
+    --build-arg "AGENT_MCP_CONFIG_PATH=${AGENT_MCP_CONFIG_PATH:-.copilot/mcp-config.json}" \
+    --build-arg "AGENT_INSTRUCTIONS_PATH=${AGENT_INSTRUCTIONS_PATH:-.copilot/copilot-instructions.md}" \
     --build-arg "CONTAINER_USER=$CONTAINER_USER" \
     --secret "id=COPILOT_GITHUB_TOKEN,src=$SECRETS_DIR/COPILOT_GITHUB_TOKEN" \
+    --secret "id=CURSOR_API_KEY,src=$SECRETS_DIR/CURSOR_API_KEY" \
     --secret "id=BITBUCKET_TOKEN,src=$SECRETS_DIR/BITBUCKET_TOKEN" \
     --secret "id=BITBUCKET_USERNAME,src=$SECRETS_DIR/BITBUCKET_USERNAME" \
     -f "$RUNNER_DIR/Dockerfile.runner" \
