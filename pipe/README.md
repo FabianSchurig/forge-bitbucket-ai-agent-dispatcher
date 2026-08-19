@@ -4,10 +4,11 @@ A reusable **[Bitbucket Pipe][bb-pipes]** that clones a target repository,
 builds its devcontainer when present, layers an AI agent profile on top,
 and executes that agent with BuildKit-mounted secrets.
 
-The first shipped profile is `copilot`, which mirrors the working
-[ai-agent-hub](https://github.com/FabianSchurig/ai-agent-hub) flow: install
-Copilot CLI through a devcontainer feature, configure bb-mcp, replay
-devcontainer lifecycle commands, and run Copilot as the devcontainer user.
+The shipped profiles are `copilot` and `cursor`. Both install their CLI
+through a devcontainer feature, configure bb-mcp, replay devcontainer
+lifecycle commands, and run the agent as the devcontainer user. The Cursor
+profile uses Cursor's print mode (`cursor-agent -p`) for non-interactive
+pipeline execution.
 
 It is designed to be invoked by the
 [forge-bitbucket-ai-agent-dispatcher](../README.md) Forge app via the
@@ -68,14 +69,15 @@ sequenceDiagram
 
 | Variable | Required | Description |
 |---|:--:|---|
-| `AGENT_TYPE` |  | Agent profile to run. Defaults to `copilot`; currently this is the only shipped profile. |
+| `AGENT_TYPE` |  | Agent profile to run. Defaults to `copilot`; supported values are `copilot` and `cursor`. |
 | `SOURCE_WORKSPACE` | ✅ | Bitbucket workspace slug of the spoke repository. |
 | `SOURCE_REPO` | ✅ | Repository slug of the spoke repository. |
 | `SOURCE_BRANCH` | ✅ | Branch of the spoke repository to check out. |
 | `COMMENT_TEXT` | ✅ | Raw text of the triggering PR comment – used as the Copilot prompt. |
 | `PR_ID` |  | Pull-request numeric ID (audit only). |
 | `COMMENT_AUTHOR` |  | Atlassian account ID of the comment author (audit only). |
-| `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
+| `COPILOT_GITHUB_TOKEN` | ✅ 🔒 when `AGENT_TYPE=copilot` | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
+| `CURSOR_API_KEY` | ✅ 🔒 when `AGENT_TYPE=cursor` | Cursor API key used by the Cursor profile. |
 | `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. With `BITBUCKET_USERNAME` it uses username/token auth; without a username it uses Bearer auth. `BB_TOKEN` is accepted as a legacy alias. |
 | `BITBUCKET_USERNAME` | 🔒 | Optional Bitbucket username used with `BITBUCKET_TOKEN` for username/token auth. Omit it to use Bearer auth. `BB_USERNAME` is accepted as a legacy alias. |
 | `SSH_KEY` | ✅ 🔒 | SSH private key used to clone the spoke repository. |
@@ -87,10 +89,10 @@ sequenceDiagram
 The non-secret variable names (`SOURCE_WORKSPACE`, `SOURCE_REPO`, etc.)
 match what the Forge dispatcher emits as pipeline variables (see
 [`src/ondemandPipelinePayload.ts`](../src/ondemandPipelinePayload.ts)).
-Secret variables (`COPILOT_GITHUB_TOKEN`, `BITBUCKET_TOKEN`,
-`SSH_KEY`, and optionally `BITBUCKET_USERNAME`) are **not** sent by the
-dispatcher — they must be configured as *Secured* repository or workspace
-variables in Bitbucket so they are available at pipeline runtime.
+The selected agent secret (`COPILOT_GITHUB_TOKEN` or `CURSOR_API_KEY`),
+`BITBUCKET_TOKEN`, `SSH_KEY`, and optionally `BITBUCKET_USERNAME` are **not**
+sent by the dispatcher — they must be configured as *Secured* repository or
+workspace variables in Bitbucket so they are available at pipeline runtime.
 
 When `BITBUCKET_USERNAME` is configured, bb-mcp receives both username and
 token for username/token authentication. When only `BITBUCKET_TOKEN` is
@@ -116,8 +118,9 @@ pipelines:
         services: [ docker ]
         script:
           - export DOCKER_BUILDKIT=1
-          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.2.0
+          - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.3.0
             variables:
+              # Set to "cursor" and use CURSOR_API_KEY for Cursor.
               AGENT_TYPE: copilot
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
               SOURCE_REPO: $SOURCE_REPO
@@ -126,6 +129,7 @@ pipelines:
               COMMENT_TEXT: $COMMENT_TEXT
               COMMENT_AUTHOR: $COMMENT_AUTHOR
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              CURSOR_API_KEY: $CURSOR_API_KEY
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
               # Optional: set BITBUCKET_USERNAME for username/token auth.
               # Omit it to use BITBUCKET_TOKEN as Bearer auth.
@@ -140,6 +144,18 @@ definitions:
 
 The dispatcher will substitute the dollar-prefixed values from the
 pipeline variables it sends with the API request.
+
+To use Cursor instead, set `AGENT_TYPE: cursor`, replace
+`COPILOT_GITHUB_TOKEN` with `CURSOR_API_KEY`, and keep the remaining variables
+unchanged:
+
+```yaml
+variables:
+  AGENT_TYPE: cursor
+  CURSOR_API_KEY: $CURSOR_API_KEY
+  BITBUCKET_TOKEN: $BITBUCKET_TOKEN
+  SSH_KEY: $SSH_KEY
+```
 
 ### From `bitbucket-pipelines.yml` (manual)
 
@@ -172,6 +188,9 @@ definitions:
     docker:
       memory: 4096
 ```
+
+For Cursor, use `AGENT_TYPE: 'cursor'` and provide
+`CURSOR_API_KEY: $CURSOR_API_KEY` instead of the Copilot token.
 
 ### Local debugging with `docker run`
 
@@ -211,14 +230,22 @@ pipe/
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
   └── agents/
-    └── copilot/
-      ├── agent.env               # command, flags, model defaults
-      ├── copilot-instructions.md # profile instructions copied to ~/.copilot
-      ├── mcp-config.json         # bb-mcp config template
-      └── wrapper-devcontainer/
-        ├── Dockerfile          # layers profile features on $BASE_IMAGE
-        └── devcontainer.json
+    ├── copilot/
+    │   ├── agent.env               # command, flags, model, and config paths
+    │   ├── copilot-instructions.md # profile instructions copied to ~/.copilot
+    │   ├── mcp-config.json         # bb-mcp config template
+    │   └── wrapper-devcontainer/   # Copilot CLI devcontainer feature
+    └── cursor/
+        ├── agent.env               # command, flags, model, and config paths
+        ├── cursor-instructions.md  # profile instructions
+        ├── mcp-config.json         # Cursor-compatible bb-mcp config template
+        └── wrapper-devcontainer/   # Cursor CLI devcontainer feature
 ```
+
+The Copilot MCP configuration is installed at
+`~/.copilot/mcp-config.json`. The Cursor profile uses Cursor's global MCP
+configuration path, `~/.cursor/mcp.json`, with the same Bitbucket server and
+BuildKit-rendered credentials.
 
 ---
 

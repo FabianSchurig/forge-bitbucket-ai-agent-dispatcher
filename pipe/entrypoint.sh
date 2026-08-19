@@ -53,12 +53,13 @@ export AGENT_TYPE="${AGENT_TYPE:-copilot}"
 # Secrets – never logged.  Exported so validate-config.sh (a child process)
 # can see them during validation.
 export COPILOT_TOKEN_VALUE="$(pick PIPE_INPUT_COPILOT_GITHUB_TOKEN PIPE_SECRET_COPILOT_GITHUB_TOKEN COPILOT_GITHUB_TOKEN PIPE_INPUT_COPILOT_TOKEN PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
+export CURSOR_API_KEY_VALUE="$(pick PIPE_INPUT_CURSOR_API_KEY PIPE_SECRET_CURSOR_API_KEY CURSOR_API_KEY)"
 export BB_TOKEN_VALUE="$(pick PIPE_INPUT_BITBUCKET_TOKEN PIPE_SECRET_BITBUCKET_TOKEN BITBUCKET_TOKEN PIPE_INPUT_BB_TOKEN PIPE_SECRET_BB_TOKEN BB_TOKEN)"
 export BB_USERNAME_VALUE="$(pick PIPE_INPUT_BITBUCKET_USERNAME PIPE_SECRET_BITBUCKET_USERNAME BITBUCKET_USERNAME PIPE_INPUT_BB_USERNAME PIPE_SECRET_BB_USERNAME BB_USERNAME)"
 export SSH_KEY_VALUE="$(pick PIPE_INPUT_SSH_KEY PIPE_SECRET_SSH_KEY SSH_KEY)"
 
-if [ "$AGENT_TYPE" != "copilot" ]; then
-    echo "ERROR: unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: copilot." >&2
+if [ "$AGENT_TYPE" != "copilot" ] && [ "$AGENT_TYPE" != "cursor" ]; then
+    echo "ERROR: unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: copilot, cursor." >&2
     exit 2
 fi
 
@@ -73,9 +74,14 @@ fi
     SOURCE_BRANCH \
     COMMENT_TEXT \
     AGENT_TYPE \
-    COPILOT_TOKEN_VALUE \
     BB_TOKEN_VALUE \
     SSH_KEY_VALUE
+
+if [ "$AGENT_TYPE" = "copilot" ]; then
+    /usr/local/bin/scripts/validate-config.sh COPILOT_TOKEN_VALUE
+else
+    /usr/local/bin/scripts/validate-config.sh CURSOR_API_KEY_VALUE
+fi
 
 # ---------------------------------------------------------------------------
 # Materialise secrets onto tmpfs.  Bitbucket Pipelines runners use tmpfs for
@@ -89,6 +95,7 @@ chmod 700 "$SECRETS_DIR"
 
 umask 077
 printf '%s' "$COPILOT_TOKEN_VALUE" > "$SECRETS_DIR/COPILOT_GITHUB_TOKEN"
+printf '%s' "$CURSOR_API_KEY_VALUE"  > "$SECRETS_DIR/CURSOR_API_KEY"
 printf '%s' "$BB_TOKEN_VALUE"      > "$SECRETS_DIR/BITBUCKET_TOKEN"
 printf '%s' "$BB_USERNAME_VALUE"   > "$SECRETS_DIR/BITBUCKET_USERNAME"
 

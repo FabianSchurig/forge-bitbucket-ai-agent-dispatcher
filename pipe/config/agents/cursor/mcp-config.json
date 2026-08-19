@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "bitbucket": {
+            "command": "bb-mcp",
+            "args": ["-transport", "stdio"],
+            "env": {
+                "BITBUCKET_TOKEN": "${BITBUCKET_TOKEN}",
+                "BITBUCKET_USERNAME": "${BITBUCKET_USERNAME}"
+            }
+        }
+    }
+}

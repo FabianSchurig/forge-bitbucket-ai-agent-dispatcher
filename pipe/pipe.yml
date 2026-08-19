@@ -23,7 +23,7 @@ description: >-
 image: ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 
 # Semver of the pipe itself.  Bump on every behavioural change.
-version: 0.2.1
+version: 0.3.0
 
 # Inputs the dispatcher (or a human operator) can supply.  Each input is
 # mapped to an env var of the same name by entrypoint.sh.
@@ -34,7 +34,7 @@ version: 0.2.1
 # src/pipelinePayload.ts) so no translation layer is needed.
 variables:
   AGENT_TYPE:
-    description: Agent profile to run. Currently supported value is "copilot".
+    description: Agent profile to run. Supported values are "copilot" and "cursor".
     required: false
     default: "copilot"
   SOURCE_WORKSPACE:
@@ -51,7 +51,7 @@ variables:
     required: false
     default: ""
   COMMENT_TEXT:
-    description: Raw text of the triggering PR comment – used as the Copilot prompt.
+    description: Raw text of the triggering PR comment – used as the agent prompt.
     required: true
   COMMENT_AUTHOR:
     description: Atlassian account ID of the comment author (for audit logs).
@@ -64,7 +64,10 @@ variables:
   # text outside of /tmp (which is tmpfs in Pipelines runners).
   COPILOT_GITHUB_TOKEN:
     description: GitHub Copilot token used by the Copilot profile. COPILOT_TOKEN is accepted as a legacy alias.
-    required: true
+    required: false
+  CURSOR_API_KEY:
+    description: Cursor API key used by the Cursor profile.
+    required: false
   BITBUCKET_TOKEN:
     description: Bitbucket API token used by bb-mcp. With BITBUCKET_USERNAME it uses username/token auth; without a username it uses Bearer auth. BB_TOKEN is accepted as a legacy alias.
     required: true

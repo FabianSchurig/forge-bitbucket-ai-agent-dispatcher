@@ -131,6 +131,7 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
           - export DOCKER_BUILDKIT=1
           - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:main
             variables:
+              # Supported values: "copilot" or "cursor".
               AGENT_TYPE: "copilot"
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
               SOURCE_REPO: $SOURCE_REPO
@@ -142,6 +143,7 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
               # workspace variables in Bitbucket – they are NOT sent by the
               # Forge dispatcher.
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              CURSOR_API_KEY: $CURSOR_API_KEY
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
               BITBUCKET_USERNAME: $BITBUCKET_USERNAME
               SSH_KEY: $SSH_KEY
