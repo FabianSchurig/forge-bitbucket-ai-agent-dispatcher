@@ -120,6 +120,7 @@ pipelines:
           - export DOCKER_BUILDKIT=1
           - pipe: docker://ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:v0.3.0
             variables:
+              # Set to "cursor" and use CURSOR_API_KEY for Cursor.
               AGENT_TYPE: copilot
               SOURCE_WORKSPACE: $SOURCE_WORKSPACE
               SOURCE_REPO: $SOURCE_REPO
@@ -128,6 +129,7 @@ pipelines:
               COMMENT_TEXT: $COMMENT_TEXT
               COMMENT_AUTHOR: $COMMENT_AUTHOR
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              CURSOR_API_KEY: $CURSOR_API_KEY
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
               # Optional: set BITBUCKET_USERNAME for username/token auth.
               # Omit it to use BITBUCKET_TOKEN as Bearer auth.

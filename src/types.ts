@@ -143,6 +143,7 @@ export const DEFAULT_ONDEMAND_YAML = `pipelines:
               # workspace variables in Bitbucket – they are NOT sent by the
               # Forge dispatcher.
               COPILOT_GITHUB_TOKEN: $COPILOT_GITHUB_TOKEN
+              CURSOR_API_KEY: $CURSOR_API_KEY
               BITBUCKET_TOKEN: $BITBUCKET_TOKEN
               BITBUCKET_USERNAME: $BITBUCKET_USERNAME
               SSH_KEY: $SSH_KEY

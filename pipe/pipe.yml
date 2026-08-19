@@ -51,7 +51,7 @@ variables:
     required: false
     default: ""
   COMMENT_TEXT:
-    description: Raw text of the triggering PR comment – used as the Copilot prompt.
+    description: Raw text of the triggering PR comment – used as the agent prompt.
     required: true
   COMMENT_AUTHOR:
     description: Atlassian account ID of the comment author (for audit logs).
