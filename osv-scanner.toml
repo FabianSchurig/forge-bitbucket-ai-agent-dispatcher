@@ -23,11 +23,6 @@ ignoreUntil = 2026-08-26
 reason = "uuid – transitive of @forge/react, @forge/bridge and @atlaskit/react-ufo; awaiting upstream bump."
 
 [[IgnoredVulns]]
-id = "GHSA-jxxr-4gwj-5jf2"
-ignoreUntil = 2026-08-26
-reason = "brace-expansion – transitive of @forge/* runtime packages; awaiting upstream bump."
-
-[[IgnoredVulns]]
 id = "GHSA-q3j6-qgpj-74h6"
 ignoreUntil = 2026-08-26
 reason = "fast-uri – transitive of @forge/bridge; awaiting upstream bump."

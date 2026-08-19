@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Lowercase IMAGE_REPO
         id: repo
@@ -71,7 +71,7 @@ jobs:
       #   - sha-<short> always
       - name: Compute image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           # Lowercase via the action itself (the env above is already
           # lowercase for our repo, but kept consistent).
@@ -86,7 +86,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./pipe
           file: ./pipe/Dockerfile
