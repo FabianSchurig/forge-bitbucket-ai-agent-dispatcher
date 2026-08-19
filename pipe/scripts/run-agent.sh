@@ -194,7 +194,7 @@ RUN set -eu; \
     fi; \
     chmod +x /tmp/lifecycle.sh; \
     /tmp/lifecycle.sh; \
-    chown -R ${CONTAINER_USER} /workspaces /tmp/mcp-template.json /tmp/copilot-instructions.md /tmp/prompt.txt
+    chown -R ${CONTAINER_USER} /workspaces /tmp/mcp-template.json /tmp/agent-instructions.md /tmp/prompt.txt
 
 USER ${CONTAINER_USER}
 
@@ -205,10 +205,13 @@ RUN --mount=type=secret,id=COPILOT_GITHUB_TOKEN,mode=0444 \
     --mount=type=secret,id=BITBUCKET_TOKEN,mode=0444 \
     --mount=type=secret,id=BITBUCKET_USERNAME,mode=0444 \
     set -eu; \
+    cleanup() { rm -f "$HOME/$AGENT_MCP_CONFIG_PATH" "$HOME/$AGENT_INSTRUCTIONS_PATH" /tmp/mcp-config.rendered.json; }; \
+    trap cleanup EXIT; \
     export COPILOT_GITHUB_TOKEN="$(cat /run/secrets/COPILOT_GITHUB_TOKEN)"; \
     export CURSOR_API_KEY="$(cat /run/secrets/CURSOR_API_KEY)"; \
     export BITBUCKET_TOKEN="$(cat /run/secrets/BITBUCKET_TOKEN)"; \
     export BITBUCKET_USERNAME="$(cat /run/secrets/BITBUCKET_USERNAME)"; \
+    export PATH="$HOME/.local/bin:$PATH"; \
     mkdir -p "$HOME/$(dirname "$AGENT_MCP_CONFIG_PATH")"; \
     if command -v envsubst >/dev/null 2>&1; then \
         envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' < /tmp/mcp-template.json > /tmp/mcp-config.rendered.json; \
