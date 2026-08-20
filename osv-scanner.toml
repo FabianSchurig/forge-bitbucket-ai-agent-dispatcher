@@ -19,15 +19,5 @@ reason = "Dev-only dependency; not shipped to the Forge runtime."
 # the team is forced to re-evaluate (e.g. after a new @forge/react release).
 [[IgnoredVulns]]
 id = "GHSA-w5hq-g745-h8pq"
-ignoreUntil = 2026-08-26
-reason = "uuid – transitive of @forge/react, @forge/bridge and @atlaskit/react-ufo; awaiting upstream bump."
-
-[[IgnoredVulns]]
-id = "GHSA-q3j6-qgpj-74h6"
-ignoreUntil = 2026-08-26
-reason = "fast-uri – transitive of @forge/bridge; awaiting upstream bump."
-
-[[IgnoredVulns]]
-id = "GHSA-v39h-62p7-jpjc"
-ignoreUntil = 2026-08-26
-reason = "fast-uri – transitive of @forge/bridge; awaiting upstream bump."
+ignoreUntil = 2026-11-20
+reason = "uuid – transitive of @forge/react, @forge/bridge and @atlaskit/react-ufo; fix requires a @forge/react patch that downgrade @atlaskit/* internals; awaiting upstream bump."
