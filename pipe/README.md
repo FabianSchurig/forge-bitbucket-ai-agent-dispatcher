@@ -207,6 +207,8 @@ pipe/
 ├── README.md                           # this file
 ├── scripts/
 │   ├── run-agent.sh                    # clone + devcontainer build + run
+│   ├── provision.sh                    # root-side agent image prep (shared)
+│   ├── execute.sh                      # secret-bearing agent invocation (shared)
 │   ├── validate-config.sh              # fail-fast input validation
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
@@ -215,10 +217,38 @@ pipe/
       ├── agent.env               # command, flags, model defaults
       ├── copilot-instructions.md # profile instructions copied to ~/.copilot
       ├── mcp-config.json         # bb-mcp config template
+      ├── skills/                 # baseline skills -> ~/.copilot/skills
       └── wrapper-devcontainer/
         ├── Dockerfile          # layers profile features on $BASE_IMAGE
         └── devcontainer.json
 ```
+
+### Reuse from other CI systems
+
+`provision.sh` and `execute.sh` are the agent's actual behaviour, and they are
+deliberately independent of this image's entrypoint. Any runtime that can build
+a Dockerfile can run the same agent by copying `config/` and `scripts/` out of
+this published image and calling the two scripts:
+
+```dockerfile
+FROM ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:main AS profile
+FROM ${BASE_IMAGE}
+COPY --from=profile /usr/local/share/ai-agent-pipe/config /opt/ai-agent/config
+COPY --from=profile /usr/local/bin/scripts               /opt/ai-agent/scripts
+```
+
+Pin that reference to a digest rather than a tag: it determines the agent's
+entire behaviour, and an agent that silently changes between runs is not
+something you want to debug.
+
+A Jenkins shared library can drive the agent this way; see ADR
+[0002](../docs/adr/0002-jenkins-builds-base-pipe-supplies-profile.md). The pipe
+image itself is never executed on that path, because it needs a Docker daemon
+and a BuildKit `RUN` cannot bind-mount the Docker socket (ADR
+[0001](../docs/adr/0001-buildx-not-docker-run.md)).
+
+`scripts/smoke-test-agent-image/run.sh` exercises exactly this integration
+offline, against a stand-in base image and fake tokens.
 
 ---
 

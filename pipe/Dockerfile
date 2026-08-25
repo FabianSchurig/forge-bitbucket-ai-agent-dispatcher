@@ -62,9 +62,15 @@ COPY scripts/   /usr/local/bin/scripts/
 COPY config/    /usr/local/share/ai-agent-pipe/config/
 COPY entrypoint.sh /entrypoint.sh
 
+# provision.sh and execute.sh are not run by this image; they are copied out
+# of it (by run-agent.sh here, by COPY --from on the Jenkins path) and run
+# inside the agent image. They still need the executable bit set here, because
+# that is the only place either caller sets it.
 RUN chmod +x /entrypoint.sh \
              /usr/local/bin/scripts/run-agent.sh \
-             /usr/local/bin/scripts/validate-config.sh
+             /usr/local/bin/scripts/validate-config.sh \
+             /usr/local/bin/scripts/provision.sh \
+             /usr/local/bin/scripts/execute.sh
 
 # Bitbucket Pipes convention: entrypoint reads PIPE_* env vars and exits with
 # the agent's exit code so Pipelines marks the step accordingly.

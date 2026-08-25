@@ -145,17 +145,17 @@ echo "==> Container user: $CONTAINER_USER"
 # ---------------------------------------------------------------------------
 # Step 5 – final docker build executes the agent with BuildKit secrets.
 # ---------------------------------------------------------------------------
+# The runner image is assembled from the same two scripts and the same agent
+# profile tree that Jenkins uses (see ADR 0002). Everything specific to a
+# runtime lives in this Dockerfile; everything about *what the agent does*
+# lives in provision.sh / execute.sh, so the two cannot drift.
 RUNNER_DIR="$WORKDIR/runner"
 rm -rf "$RUNNER_DIR"
 mkdir -p "$RUNNER_DIR"
 cp "$LIFECYCLE_SCRIPT" "$RUNNER_DIR/lifecycle.sh"
 cp -R "$WORKDIR/repo" "$RUNNER_DIR/$WORKSPACE_DIR"
-cp "$AGENT_CONFIG_DIR/mcp-config.json" "$RUNNER_DIR/mcp-config.json"
-if [ -f "$AGENT_CONFIG_DIR/copilot-instructions.md" ]; then
-    cp "$AGENT_CONFIG_DIR/copilot-instructions.md" "$RUNNER_DIR/copilot-instructions.md"
-else
-    : > "$RUNNER_DIR/copilot-instructions.md"
-fi
+cp -R "$PIPE_CONFIG_DIR/." "$RUNNER_DIR/agent-config/"
+cp -R /usr/local/bin/scripts/. "$RUNNER_DIR/agent-scripts/"
 printf '%s' "$COMMENT_TEXT" > "$RUNNER_DIR/prompt.txt"
 
 cat > "$RUNNER_DIR/Dockerfile.runner" <<'DOCKERFILE'
@@ -164,34 +164,31 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ARG WORKSPACE_DIR=repo
-ARG AGENT_COMMAND=copilot
-ARG AGENT_FLAGS="--allow-all-tools --output-format json --no-ask-user"
+ARG AGENT_TYPE=copilot
 ARG AGENT_MODEL=""
 ARG CONTAINER_USER=root
+ARG SOURCE_WORKSPACE=""
+ARG SOURCE_REPO=""
+ARG SOURCE_BRANCH=""
+ARG PR_ID=""
 
+ENV AGENT_ROOT=/opt/ai-agent \
+    AGENT_MODEL=${AGENT_MODEL} \
+    SOURCE_WORKSPACE=${SOURCE_WORKSPACE} \
+    SOURCE_REPO=${SOURCE_REPO} \
+    SOURCE_BRANCH=${SOURCE_BRANCH} \
+    PR_ID=${PR_ID}
+
+COPY agent-config  /opt/ai-agent/config
+COPY agent-scripts /opt/ai-agent/scripts
+COPY lifecycle.sh  /opt/ai-agent/lifecycle.sh
+COPY prompt.txt    /opt/ai-agent/prompt.txt
 COPY ${WORKSPACE_DIR} /workspaces/${WORKSPACE_DIR}
-COPY lifecycle.sh /tmp/lifecycle.sh
-COPY prompt.txt /tmp/prompt.txt
-COPY mcp-config.json /tmp/mcp-template.json
-COPY copilot-instructions.md /tmp/copilot-instructions.md
 WORKDIR /workspaces/${WORKSPACE_DIR}
 
 USER root
-RUN set -eu; \
-    if command -v apt-get >/dev/null 2>&1; then \
-        apt-get update; \
-        apt-get install -y --no-install-recommends ca-certificates curl gettext-base jq; \
-        rm -rf /var/lib/apt/lists/*; \
-    elif command -v apk >/dev/null 2>&1; then \
-        apk add --no-cache ca-certificates curl gettext jq; \
-    fi; \
-    if command -v curl >/dev/null 2>&1; then \
-        curl -fsSL https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/f46771ef34da3b9b9a10d59341d3c5f640e97536/install.sh \
-            | sh -s -- --binary bb-mcp; \
-    fi; \
-    chmod +x /tmp/lifecycle.sh; \
-    /tmp/lifecycle.sh; \
-    chown -R ${CONTAINER_USER} /workspaces /tmp/mcp-template.json /tmp/copilot-instructions.md /tmp/prompt.txt
+RUN chmod +x /opt/ai-agent/scripts/*.sh \
+ && /opt/ai-agent/scripts/provision.sh "${AGENT_TYPE}" "${CONTAINER_USER}"
 
 USER ${CONTAINER_USER}
 
@@ -200,25 +197,7 @@ USER ${CONTAINER_USER}
 RUN --mount=type=secret,id=COPILOT_GITHUB_TOKEN,mode=0444 \
     --mount=type=secret,id=BITBUCKET_TOKEN,mode=0444 \
     --mount=type=secret,id=BITBUCKET_USERNAME,mode=0444 \
-    set -eu; \
-    export COPILOT_GITHUB_TOKEN="$(cat /run/secrets/COPILOT_GITHUB_TOKEN)"; \
-    export BITBUCKET_TOKEN="$(cat /run/secrets/BITBUCKET_TOKEN)"; \
-    export BITBUCKET_USERNAME="$(cat /run/secrets/BITBUCKET_USERNAME)"; \
-    mkdir -p "$HOME/.copilot"; \
-    if command -v envsubst >/dev/null 2>&1; then \
-        envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' < /tmp/mcp-template.json > /tmp/mcp-config.rendered.json; \
-    else \
-        cp /tmp/mcp-template.json /tmp/mcp-config.rendered.json; \
-    fi; \
-    if [ -z "$BITBUCKET_USERNAME" ] && command -v jq >/dev/null 2>&1; then \
-        jq 'del(.mcpServers.bitbucket.env.BITBUCKET_USERNAME)' /tmp/mcp-config.rendered.json > "$HOME/.copilot/mcp-config.json"; \
-    else \
-        cp /tmp/mcp-config.rendered.json "$HOME/.copilot/mcp-config.json"; \
-    fi; \
-    cp /tmp/copilot-instructions.md "$HOME/.copilot/copilot-instructions.md"; \
-    MODEL_FLAG=""; \
-    if [ -n "$AGENT_MODEL" ]; then MODEL_FLAG="--model=$AGENT_MODEL"; fi; \
-    $AGENT_COMMAND -p "$(cat /tmp/prompt.txt)" $AGENT_FLAGS $MODEL_FLAG
+    /opt/ai-agent/scripts/execute.sh "${AGENT_TYPE}"
 DOCKERFILE
 
 echo "==> Executing $AGENT_TYPE inside agent image."
@@ -227,10 +206,13 @@ DOCKER_BUILDKIT=1 docker build \
     --no-cache \
     --build-arg "BASE_IMAGE=$AGENT_IMAGE" \
     --build-arg "WORKSPACE_DIR=$WORKSPACE_DIR" \
-    --build-arg "AGENT_COMMAND=$AGENT_COMMAND" \
-    --build-arg "AGENT_FLAGS=$AGENT_FLAGS" \
+    --build-arg "AGENT_TYPE=$AGENT_TYPE" \
     --build-arg "AGENT_MODEL=${AGENT_MODEL:-}" \
     --build-arg "CONTAINER_USER=$CONTAINER_USER" \
+    --build-arg "SOURCE_WORKSPACE=$SOURCE_WORKSPACE" \
+    --build-arg "SOURCE_REPO=$SOURCE_REPO" \
+    --build-arg "SOURCE_BRANCH=$SOURCE_BRANCH" \
+    --build-arg "PR_ID=${PR_ID:-}" \
     --secret "id=COPILOT_GITHUB_TOKEN,src=$SECRETS_DIR/COPILOT_GITHUB_TOKEN" \
     --secret "id=BITBUCKET_TOKEN,src=$SECRETS_DIR/BITBUCKET_TOKEN" \
     --secret "id=BITBUCKET_USERNAME,src=$SECRETS_DIR/BITBUCKET_USERNAME" \
