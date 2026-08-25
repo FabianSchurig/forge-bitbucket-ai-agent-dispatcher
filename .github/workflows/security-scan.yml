@@ -41,7 +41,7 @@ jobs:
 
       - name: Run osv-scanner
         id: scan
-        uses: google/osv-scanner-action/osv-scanner-action@v2.5.0
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
         with:
           # Scan the npm lockfile (transitive graph, no install needed) and
           # honour the in-repo configuration file (osv-scanner.toml) which
