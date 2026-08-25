@@ -73,7 +73,7 @@ sequenceDiagram
 | `SOURCE_REPO` | ✅ | Repository slug of the spoke repository. |
 | `SOURCE_BRANCH` | ✅ | Branch of the spoke repository to check out. |
 | `COMMENT_TEXT` | ✅ | Raw text of the triggering PR comment – used as the Copilot prompt. |
-| `PR_ID` |  | Pull-request numeric ID (audit only). |
+| `PR_ID` | ✅ | Pull-request numeric ID. Required so the agent can self-serve PR context through bb-mcp. |
 | `COMMENT_AUTHOR` |  | Atlassian account ID of the comment author (audit only). |
 | `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
 | `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. With `BITBUCKET_USERNAME` it uses username/token auth; without a username it uses Bearer auth. `BB_TOKEN` is accepted as a legacy alias. |

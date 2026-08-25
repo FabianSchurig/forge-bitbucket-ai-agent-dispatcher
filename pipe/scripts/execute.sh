@@ -82,16 +82,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if command -v envsubst >/dev/null 2>&1; then
-    envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' \
-        < "$AGENT_CONFIG_DIR/mcp-config.json" > "$RENDERED"
-else
-    cp "$AGENT_CONFIG_DIR/mcp-config.json" "$RENDERED"
+if ! command -v envsubst >/dev/null 2>&1; then
+    echo "ERROR: envsubst is required to render the MCP config (install gettext-base)." >&2
+    exit 2
 fi
+envsubst '${BITBUCKET_TOKEN} ${BITBUCKET_USERNAME}' \
+    < "$AGENT_CONFIG_DIR/mcp-config.json" > "$RENDERED"
 
 # An empty BITBUCKET_USERNAME must be removed rather than passed as "", or
 # bb-mcp attempts username/token auth with a blank username instead of Bearer.
-if [ -z "$BITBUCKET_USERNAME" ] && command -v jq >/dev/null 2>&1; then
+if [ -z "$BITBUCKET_USERNAME" ]; then
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "ERROR: jq is required to strip an empty BITBUCKET_USERNAME from the MCP config." >&2
+        exit 2
+    fi
     jq 'del(.mcpServers.bitbucket.env.BITBUCKET_USERNAME)' "$RENDERED" > "$COPILOT_HOME/mcp-config.json"
 else
     cp "$RENDERED" "$COPILOT_HOME/mcp-config.json"
@@ -115,21 +119,25 @@ if [ ! -f "$PROMPT_FILE" ]; then
     echo "ERROR: no prompt at $PROMPT_FILE." >&2
     exit 2
 fi
+if [ -z "${PR_ID:-}" ]; then
+    echo "ERROR: PR_ID is required; the agent self-serves pull request context through bb-mcp." >&2
+    exit 2
+fi
+if [ -z "${SOURCE_WORKSPACE:-}" ] || [ -z "${SOURCE_REPO:-}" ]; then
+    echo "ERROR: SOURCE_WORKSPACE and SOURCE_REPO are required to identify the pull request." >&2
+    exit 2
+fi
 
 {
-    if [ -n "${SOURCE_WORKSPACE:-}" ] && [ -n "${SOURCE_REPO:-}" ]; then
-        echo "Repository: ${SOURCE_WORKSPACE}/${SOURCE_REPO}"
-    fi
+    echo "Repository: ${SOURCE_WORKSPACE}/${SOURCE_REPO}"
     if [ -n "${SOURCE_BRANCH:-}" ]; then
         echo "Branch: ${SOURCE_BRANCH}"
     fi
-    if [ -n "${PR_ID:-}" ]; then
-        echo "Pull request ID: ${PR_ID}"
-        echo
-        echo "Use the Bitbucket MCP tools to read this pull request and post any"
-        echo "result back to it. The working tree at $(pwd) is checked out at the"
-        echo "pull request's source branch."
-    fi
+    echo "Pull request ID: ${PR_ID}"
+    echo
+    echo "Use the Bitbucket MCP tools to read this pull request and post any"
+    echo "result back to it. The working tree at $(pwd) is checked out at the"
+    echo "pull request's source branch."
     echo
     cat "$PROMPT_FILE"
 } > "$CONTEXT_FILE"
