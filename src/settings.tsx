@@ -23,6 +23,17 @@ import type { DispatchEvent } from './types';
 import type { CIProviderType } from './interfaces/CIProvider';
 import { JENKINS_ENABLED } from './featureFlags';
 
+/**
+ * `invoke()` is typed as `T | { body: T; metadata? }`. We never request
+ * metadata, so the runtime value is `T`; this unwraps the union for TS.
+ */
+function unwrapInvoke<T>(data: T | { body: T }): T {
+  if (data && typeof data === 'object' && !Array.isArray(data) && 'body' in data) {
+    return (data as { body: T }).body;
+  }
+  return data as T;
+}
+
 // The InputEvent type from Forge UI Kit 2 is a serialisable event object (not
 // the standard DOM Event). Only target.value is needed here.
 type ForgeInputEvent = { target: { value?: unknown } };
@@ -82,7 +93,7 @@ export const SettingsForm = () => {
         setProjectUuid(uuid);
 
         // Pass the project UUID to the resolver so it fetches project-scoped config.
-        const data = await invoke<AppConfig>('getSettings', { projectUuid: uuid });
+        const data = unwrapInvoke(await invoke<AppConfig>('getSettings', { projectUuid: uuid }));
         const loaded = data ?? DEFAULT_CONFIG;
         // In the `lite` build the Jenkins provider does not exist. If a
         // stale stored config still points at it, fall back to the default
@@ -96,9 +107,11 @@ export const SettingsForm = () => {
 
         // Load project-scoped monitoring events (best-effort — errors are silently ignored).
         try {
-          const events = await invoke<DispatchEvent[]>('getMonitoringEvents', {
-            projectUuid: uuid,
-          });
+          const events = unwrapInvoke(
+            await invoke<DispatchEvent[]>('getMonitoringEvents', {
+              projectUuid: uuid,
+            }),
+          );
           setMonitoringEvents(events ?? []);
         } catch {
           // Non-critical — the settings page still works without monitoring data.
