@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout the released tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Use the tag attached to the release (or the workflow_dispatch
           # input). This guarantees production always builds from the exact
@@ -88,7 +88,7 @@ jobs:
 
       - name: Setup Node.js 24
         if: env.SKIP_VARIANT != 'true'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'

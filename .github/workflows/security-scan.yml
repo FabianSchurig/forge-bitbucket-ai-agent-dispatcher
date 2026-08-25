@@ -37,11 +37,11 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run osv-scanner
         id: scan
-        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.0
         with:
           # Scan the npm lockfile (transitive graph, no install needed) and
           # honour the in-repo configuration file (osv-scanner.toml) which
@@ -75,10 +75,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
