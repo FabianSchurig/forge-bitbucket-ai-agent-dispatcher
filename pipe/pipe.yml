@@ -47,9 +47,8 @@ variables:
     description: Branch of the spoke repository to check out.
     required: true
   PR_ID:
-    description: Pull-request numeric ID that triggered the agent.
-    required: false
-    default: ""
+    description: Pull-request numeric ID that triggered the agent. Required so the agent can self-serve PR context through bb-mcp.
+    required: true
   COMMENT_TEXT:
     description: Raw text of the triggering PR comment – used as the Copilot prompt.
     required: true
