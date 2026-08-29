@@ -9,6 +9,10 @@ When a user posts a comment containing a configurable trigger keyword (default: 
 3. Passes the full PR context as build parameters so the CI environment knows which spoke to act upon
 4. Posts a friendly failure comment on the PR if the build cannot be triggered
 
+In addition to the PR-comment trigger, the app ships a **cross-product (XPA) Jira
+issue-context panel** that lets developers dispatch the same agent pipeline
+directly from a Jira issue — see [Jira issue-context dispatcher](#jira-issue-context-dispatcher).
+
 ---
 
 ## Architecture
@@ -64,6 +68,71 @@ Additional admin-defined variables (including secrets) can be configured per pro
 
 ---
 
+## Jira issue-context dispatcher
+
+The app also exposes a Forge `jira:issueContext` panel (a **cross-product app**,
+so it can be installed on Jira in addition to Bitbucket). It lets a developer
+kick off an AI-agent pipeline straight from the issue they are working on,
+without writing a PR comment.
+
+> **Installing on Jira is a separate step.** Forge installations are
+> *per-product*: deploying the app and installing it on Bitbucket does **not**
+> make the panel appear in Jira. You must run `forge install … --product jira`
+> against a Jira site as well (see [Install the app on your Jira
+> site](#5-install-the-app-on-your-jira-site)). Until that install exists, the
+> app will not show up under **Jira → Apps** or on the issue view.
+
+**Flow**
+
+1. The panel reads the active issue key from the Forge issue-context extension
+   (`view.getContext()`).
+2. `getJiraContext` (resolver) turns that issue key into an injection-safe
+   suggested branch name. The app holds **no Jira scopes** (see note below), so
+   it never calls the Jira REST API — only the issue key from the context is
+   used, and the developer can refine the branch name in the panel.
+3. `fetchRepositories` (resolver, `asUser`) lists the Bitbucket repositories the
+   user is a member of, populating the repository selector.
+4. The developer picks a repository, optionally edits the branch, and clicks
+   **Dispatch agent**.
+5. `dispatchAgent` (resolver) creates the branch (idempotently) and triggers an
+   on-demand Bitbucket pipeline, returning the pipeline link.
+
+> **Why no Jira scopes?** Forge does not allow combining Bitbucket *workspace*
+> scopes with Jira *site* scopes in a single app (`Workspace scopes can not be
+> used with site scopes`). Because this app needs the Bitbucket scopes to create
+> branches and trigger pipelines, it cannot also request `read:jira-work`. The
+> `jira:issueContext` extension context only exposes the issue `key`/`id`/`type`
+> (not the summary), so the branch name is derived from the issue key alone.
+
+**Runner contract (Phase 4).** The Jira metadata is forwarded to the runner as
+ordinary environment variables — the runner's `bitbucket-pipelines.yml` reads:
+
+| Variable | Description |
+|---|---|
+| `$JIRA_ISSUE_KEY` | Key of the Jira issue (e.g. `PROJ-123`) |
+| `$JIRA_ISSUE_SUMMARY` | Summary of the Jira issue (empty — see "Why no Jira scopes?") |
+| `$SOURCE_WORKSPACE` / `$SOURCE_REPO` / `$SOURCE_BRANCH` | Target repository + branch |
+
+These are appended to the default on-demand YAML template (`DEFAULT_ONDEMAND_YAML`
+in `src/types.ts`) so the bundled agent pipe receives them automatically.
+
+**Security.** The branch name the user edits is user-controlled free-form text,
+so it is *never* concatenated into shell commands or URLs:
+
+- Branch names are generated/sanitised by `src/jira/branchName.ts`, which reduces
+  input down to `[A-Za-z0-9._/-]` (input like `"; rm -rf * ;"` collapses to an
+  inert slug) and validates the result against the shared branch allowlist.
+- All Jira metadata travels as pipeline **variable values**, percent-encoded by
+  `URLSearchParams` (see `src/jira/jiraDispatch.ts`), so it cannot alter URL
+  structure or break out of the variable.
+- The repository list read uses `asUser` so the caller's own Bitbucket
+  permissions apply.
+- To restrict who can trigger these (compute-costly) runs, scope the panel with
+  manifest `displayConditions` and enforce branch-protection rules in Bitbucket
+  so agents cannot push directly to protected branches.
+
+---
+
 ## Requirements
 
 | Tool | Version |
@@ -112,6 +181,23 @@ forge install --non-interactive --site bitbucket.org/fabian-schurig --product bi
 
 > **Important:** The first install must be performed manually from a developer machine.
 > The CI/CD pipeline uses `forge install --upgrade` which requires an existing installation UUID.
+
+### 5. Install the app on your Jira site
+
+Because this is a cross-product app, the `jira:issueContext` panel only appears
+once the app is **also** installed on a Jira site. Forge tracks Bitbucket and
+Jira installations separately, so this is a distinct install from step 4:
+
+```bash
+forge install --non-interactive --site your-team.atlassian.net --product jira --environment development
+```
+
+> **Important:** Replace `your-team.atlassian.net` with your own Jira site. Like
+> the Bitbucket install, the first Jira install must be performed manually; the
+> CI/CD pipeline then keeps it in sync with `forge install --upgrade` (gated on
+> the `JIRA_SITE` repository variable — see [CI/CD](#cicd--automated-deployment-github-actions)).
+> After installing, open any Jira issue and look for the **AI Agent Dispatcher**
+> context panel on the issue view.
 
 ---
 
@@ -208,6 +294,19 @@ Add the following **Repository Secrets** under
 5. `forge lint` – validate the manifest and code
 6. `forge deploy -e development` – deploy new code
 7. `forge install --upgrade --non-interactive --site bitbucket.org/fabian-schurig --product bitbucket --environment development` – apply the update to the installed workspace
+8. `forge install --upgrade … --product jira …` – keep the Jira installation in sync (only runs on `main` when the `JIRA_SITE` repository variable is set; skipped otherwise)
+
+### Optional: Jira installation
+
+The `jira:issueContext` panel only appears in Jira once the app is installed on
+a Jira site (a separate install from Bitbucket — see
+[Install the app on your Jira site](#5-install-the-app-on-your-jira-site)). To
+let CI keep that Jira installation up to date, add a **Repository Variable**
+(`Settings → Secrets and variables → Actions → Variables`):
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_SITE` | Your Jira site hostname (e.g. `your-team.atlassian.net`). When unset, the Jira upgrade step is skipped so forks without a Jira site are unaffected. |
 
 ### Production deployments
 
@@ -251,6 +350,11 @@ See the Atlassian docs on [staging and production apps](https://developer.atlass
 | `write:repository:bitbucket` | Required by Bitbucket's on-demand pipelines API to satisfy the per-branch write-permission check on the target ref |
 | `read:pipeline:bitbucket` | Check build status via Bitbucket Pipelines API |
 | `storage:app` | Persist and retrieve workspace configuration |
+
+> **No Jira scopes:** the `jira:issueContext` dispatcher panel requests no Jira
+> (site) scopes, because Forge forbids combining Bitbucket workspace scopes with
+> Jira site scopes in a single app. The panel uses only the issue key from the
+> extension context and never calls the Jira REST API.
 
 > **On-demand pipelines note:** Bitbucket's on-demand pipelines API
 > enforces the caller's write permission on the target branch. Requests
@@ -329,7 +433,12 @@ Dev-only dependencies are already filtered out via a `[[PackageOverrides]]` bloc
     ├── pipelinePayload.ts    Shared Bitbucket Pipelines payload builder
     ├── dispatcher.ts         PR comment trigger handler and Bitbucket API helpers
     ├── resolvers.ts          Forge resolver for settings + startDeployment
+    ├── jiraResolvers.ts      Forge resolver for the Jira issue-context panel
     ├── settings.tsx          Project settings UI (Forge UI Kit 2)
+    ├── dispatchPanel.tsx     Jira issue-context dispatcher UI (Forge UI Kit 2)
+    ├── jira/                 Jira issue-context dispatch helpers
+    │   ├── branchName.ts     Injection-safe branch-name slugifier
+    │   └── jiraDispatch.ts   On-demand request builder for Jira dispatches
     ├── interfaces/           CIProvider contract and CIProviderError
     │   ├── CIProvider.ts     Strategy Pattern interface
     │   ├── CIProviderError.ts Standardised error class for all providers

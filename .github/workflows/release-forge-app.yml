@@ -189,3 +189,20 @@ jobs:
             --site bitbucket.org/fabian-schurig \
             --product bitbucket \
             --environment production
+
+      - name: Upgrade Jira installation (production)
+        # Forge installs are per-product: the jira:issueContext panel only
+        # appears in Jira once the app is installed on a Jira site as well as
+        # on Bitbucket. The site is provided via the `JIRA_SITE` repository
+        # variable so this step is skipped when no Jira site is configured.
+        # The first-time install is performed manually; failures are tolerated
+        # for the same reasons as the Bitbucket upgrade above.
+        if: env.SKIP_VARIANT != 'true' && vars.JIRA_SITE != ''
+        continue-on-error: true
+        run: |
+          forge install \
+            --upgrade \
+            --non-interactive \
+            --site "${{ vars.JIRA_SITE }}" \
+            --product jira \
+            --environment production
