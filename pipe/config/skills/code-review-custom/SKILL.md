@@ -32,6 +32,25 @@ Nothing has been pre-fetched. Use the Bitbucket MCP tools, in this order:
 If the patch is too large to reason about whole, rank files by churn and review
 the largest few against the working tree on disk.
 
+## Review mode
+
+The prompt may name a **review mode**, a **head commit** and a **previously
+reviewed commit**. Without them, review the whole pull request.
+
+- **full** — review the whole pull request, as above.
+- **incremental** — the pull request was reviewed up to the previously
+  reviewed commit, and new commits were pushed since. Review only what they
+  changed: get it with `compareTwoCommits` and spec `<head>..<previous>` (new
+  first), and `listCommitsOnAPullRequest` for their messages. Still read the
+  full patch and the existing comments for context, but report findings only
+  on code the new commits added or changed.
+
+In either mode, the existing comments are what earlier runs and reviewers
+already said. Do not raise a finding again that an existing comment already
+raises on the same code, even if its line number moved. The working tree on
+disk may be ahead of the head commit if someone pushed meanwhile; the
+Bitbucket API at the head commit is authoritative.
+
 ## Axis 1 — Standards
 
 Compare the diff against, in order of precedence:
@@ -62,7 +81,10 @@ Every finding that is about specific code is anchored to **one line that the
 pull request adds or changes**, identified by its path and its line number in
 the *new* version of the file. Read the number off the diff hunk headers
 (`@@ -a,b +c,d @@`): count `+` and context lines from `c`. Never anchor to a
-line the diff does not touch — Bitbucket will reject or misplace it.
+line the diff does not touch — Bitbucket will reject or misplace it. In an
+incremental review the line must be added or changed both by the new commits
+and by the pull request as a whole; a line the new commits changed back to the
+destination branch's version is not in the pull request's diff any more.
 
 Findings that are not about one line (a missing requirement, an overall design
 concern) go in the summary only.
@@ -81,12 +103,25 @@ The prompt tells you whether this run is **read-only**.
    `createACommentOnAPullRequest`, setting `inline.path` to the file path and
    `inline.to` to the new-file line. Start the body with the severity in bold,
    e.g. `**major** — …`.
-2. Then post exactly one summary comment (no `inline`): two sections, one per
+2. Then write exactly one summary comment (no `inline`): two sections, one per
    axis, each a short list of findings with `path:line` references, plus any
    un-anchored findings. Say so explicitly when an axis has no findings.
+   - If the prompt names a summary comment id, **update that comment** with
+     `updateACommentOnAPullRequest` instead of posting a new one. Rewrite it to
+     describe the pull request as of the head commit: keep earlier findings
+     that still apply, add the new ones, and mark earlier ones the new commits
+     resolved as resolved. In an incremental review, add one line naming the
+     commits that were reviewed this time.
+   - Otherwise post it with `createACommentOnAPullRequest`.
 
-If the change is clean on both axes, a single two-line summary comment saying
-exactly that is the correct output.
+If the change is clean on both axes, a two-line summary saying exactly that is
+the correct output.
+
+When the prompt gives a footer line (`Reviewed up to commit <sha>`), the
+summary comment **must end with that exact line**, on its own, as plain text:
+no code formatting, no trailing punctuation, nothing after it. The pipeline
+reads it back to decide what the next run reviews, and marks the run unstable
+when it is missing. Never put the footer in an inline comment.
 
 ### Read-only run
 
