@@ -2,7 +2,7 @@
 
 Skills in this directory are shared by every agent profile. `provision.sh`
 installs them into the profile's personal skills directory inside the agent
-image — `$HOME/.copilot/skills/` for Copilot, `$HOME/.cursor/skills/` for
+image — `$HOME/.copilot/skills/` for Copilot, `$HOME/.agents/skills/` for
 Cursor — as set by `AGENT_SKILLS_DIR` in the profile's `agent.env`. A profile
 may ship extra skills of its own under `config/agents/<profile>/skills/`; those
 are installed after these and win on a name clash.

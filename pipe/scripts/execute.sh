@@ -207,6 +207,11 @@ if [ -n "${AGENT_LIST_MODELS_COMMAND:-}" ]; then
     # shellcheck disable=SC2086
     $AGENT_LIST_MODELS_COMMAND || echo "WARN: could not list models." >&2
 fi
+if [ -n "${AGENT_PREFLIGHT_COMMAND:-}" ]; then
+    echo "==> ${AGENT_PREFLIGHT_COMMAND}:"
+    # shellcheck disable=SC2086
+    $AGENT_PREFLIGHT_COMMAND || echo "WARN: preflight command failed." >&2
+fi
 
 MODEL_FLAG=""
 if [ -n "${AGENT_MODEL:-}" ]; then
@@ -216,9 +221,18 @@ fi
 echo "==> Running '$AGENT_COMMAND' (profile: $AGENT_TYPE, model: ${AGENT_MODEL:-default}, read-only: $READ_ONLY)"
 
 set +e
-# shellcheck disable=SC2086
-"$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG
-agent_status=$?
+if [ -n "${AGENT_OUTPUT_FILTER:-}" ]; then
+    # Lines that are not JSON pass through unchanged, so a CLI error message is
+    # never swallowed by the filter.
+    # shellcheck disable=SC2086
+    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG \
+        | jq -rR --unbuffered "(fromjson? // {raw: .}) | if .raw then .raw else ($AGENT_OUTPUT_FILTER) end"
+    agent_status=${PIPESTATUS[0]}
+else
+    # shellcheck disable=SC2086
+    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG
+    agent_status=$?
+fi
 set -e
 
 echo "==> Agent exited with status ${agent_status}."
