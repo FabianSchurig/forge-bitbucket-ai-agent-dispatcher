@@ -41,6 +41,15 @@ fi
 
 echo "==> provision.sh: profile '$AGENT_TYPE', container user '$CONTAINER_USER'"
 
+# AGENT_HOME_DIR / AGENT_SKILLS_DIR, plus any profile-specific install inputs.
+# Exported so the profile's install.sh sees them.
+set -a
+# shellcheck source=/dev/null
+source "$AGENT_CONFIG_DIR/agent.env"
+set +a
+AGENT_HOME_DIR="${AGENT_HOME_DIR:-.copilot}"
+AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$AGENT_HOME_DIR/skills}"
+
 # ---------------------------------------------------------------------------
 # OS packages.
 #
@@ -98,12 +107,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Baseline skills.
+# Agent CLI and baseline skills.
 #
-# Copilot merges personal skills (~/.copilot/skills/) with project skills
-# (.agents/skills/ in the workspace). We install the profile's baseline set as
-# personal skills so the source repository's own .agents/skills/ overlays and
-# can override them by name.
+# The agents merge personal skills (~/$AGENT_SKILLS_DIR) with project skills
+# (.agents/skills/ in the workspace). We install the baseline set as personal
+# skills so the source repository's own .agents/skills/ overlays and can
+# override them by name.
 # ---------------------------------------------------------------------------
 resolve_home() {
     local user="$1"
@@ -123,29 +132,39 @@ resolve_home() {
 CONTAINER_HOME="$(resolve_home "$CONTAINER_USER")"
 echo "==> Container user home: $CONTAINER_HOME"
 
-if [ -d "$AGENT_CONFIG_DIR/skills" ]; then
-    mkdir -p "$CONTAINER_HOME/.copilot/skills"
-    skill_count=0
-    # Only directories that actually contain a SKILL.md. Copying the tree
-    # wholesale would also install this directory's own README as though it
-    # were a skill.
-    for skill_dir in "$AGENT_CONFIG_DIR"/skills/*/; do
-        [ -f "${skill_dir}SKILL.md" ] || continue
-        cp -R "$skill_dir" "$CONTAINER_HOME/.copilot/skills/"
-        skill_count=$((skill_count + 1))
-        echo "    + $(basename "$skill_dir")"
-    done
-    echo "==> Installed ${skill_count} baseline skill(s) into $CONTAINER_HOME/.copilot/skills"
-else
-    echo "==> Profile ships no baseline skills."
+# ---------------------------------------------------------------------------
+# Agent CLI. A profile whose CLI is not already in the base image ships an
+# install.sh; it runs as root and must leave the CLI on the container user's
+# PATH.
+# ---------------------------------------------------------------------------
+if [ -f "$AGENT_CONFIG_DIR/install.sh" ]; then
+    echo "==> Running $AGENT_TYPE install hook"
+    bash "$AGENT_CONFIG_DIR/install.sh" "$CONTAINER_USER" "$CONTAINER_HOME"
 fi
 
+# Shared skills first, then the profile's own, so a profile can override a
+# shared skill by name. Only directories that actually contain a SKILL.md:
+# copying a tree wholesale would also install its README as though it were a
+# skill.
+SKILLS_TARGET="$CONTAINER_HOME/$AGENT_SKILLS_DIR"
+mkdir -p "$SKILLS_TARGET"
+skill_count=0
+for skill_dir in "$AGENT_ROOT"/config/skills/*/ "$AGENT_CONFIG_DIR"/skills/*/; do
+    [ -f "${skill_dir}SKILL.md" ] || continue
+    rm -rf "${SKILLS_TARGET:?}/$(basename "$skill_dir")"
+    cp -R "$skill_dir" "$SKILLS_TARGET/"
+    skill_count=$((skill_count + 1))
+    echo "    + $(basename "$skill_dir")"
+done
+echo "==> Installed ${skill_count} baseline skill(s) into $SKILLS_TARGET"
+
 # ---------------------------------------------------------------------------
-# Ownership. execute.sh runs as $CONTAINER_USER and writes into ~/.copilot,
-# and the agent edits the workspace, so both must be writable by that user.
+# Ownership. execute.sh runs as $CONTAINER_USER and writes into the agent's
+# home directory, and the agent edits the workspace, so both must be writable
+# by that user.
 # ---------------------------------------------------------------------------
-mkdir -p "$CONTAINER_HOME/.copilot"
-chown -R "$CONTAINER_USER" "$CONTAINER_HOME/.copilot"
+mkdir -p "$CONTAINER_HOME/$AGENT_HOME_DIR"
+chown -R "$CONTAINER_USER" "$CONTAINER_HOME/$AGENT_HOME_DIR"
 chown -R "$CONTAINER_USER" "$AGENT_ROOT"
 if [ -d /workspaces ]; then
     chown -R "$CONTAINER_USER" /workspaces

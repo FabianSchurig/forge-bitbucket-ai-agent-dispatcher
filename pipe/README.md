@@ -212,16 +212,34 @@ pipe/
 │   ├── validate-config.sh              # fail-fast input validation
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
+  ├── skills/                   # baseline skills shared by all profiles
   └── agents/
-    └── copilot/
-      ├── agent.env               # command, flags, model defaults
-      ├── copilot-instructions.md # profile instructions copied to ~/.copilot
-      ├── mcp-config.json         # bb-mcp config template
-      ├── skills/                 # baseline skills -> ~/.copilot/skills
-      └── wrapper-devcontainer/
-        ├── Dockerfile          # layers profile features on $BASE_IMAGE
-        └── devcontainer.json
+    ├── copilot/
+    │ ├── agent.env               # command, flags, model, secret, paths
+    │ ├── copilot-instructions.md # profile instructions copied to ~/.copilot
+    │ ├── mcp-config.json         # bb-mcp config template
+    │ └── wrapper-devcontainer/
+    │   ├── Dockerfile          # layers profile features on $BASE_IMAGE
+    │   └── devcontainer.json
+    └── cursor/
+      ├── agent.env               # command, flags, model, secret, paths
+      ├── cursor-instructions.md  # prepended to the prompt
+      ├── install.sh              # installs a pinned cursor-agent (provision.sh hook)
+      └── mcp-config.json         # bb-mcp config template -> ~/.cursor/mcp.json
 ```
+
+`agent.env` is the contract between a profile and the two shared scripts:
+`AGENT_SECRET_NAME` names the `/run/secrets/` entry the agent authenticates
+with, `AGENT_HOME_DIR` / `AGENT_SKILLS_DIR` / `AGENT_MCP_CONFIG_PATH` locate its
+files under the container user's home, and an optional `install.sh` puts the
+agent CLI on the image when the base image does not already carry it.
+
+With `READ_ONLY=true` in the environment, `execute.sh` starts bb-mcp with a
+GET-only configuration, so the agent can read the pull request but has no write
+operation to call; the prompt tells it to print its result instead.
+
+The Jenkins path supports the `cursor` profile. The Bitbucket Pipe entrypoint
+still materialises only the Copilot token.
 
 ### Reuse from other CI systems
 
