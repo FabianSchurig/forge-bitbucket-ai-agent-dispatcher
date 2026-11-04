@@ -49,6 +49,12 @@ export COMMENT_TEXT="$(pick PIPE_INPUT_COMMENT_TEXT COMMENT_TEXT)"
 export COMMENT_AUTHOR="$(pick PIPE_INPUT_COMMENT_AUTHOR COMMENT_AUTHOR)"
 export AGENT_TYPE="$(pick PIPE_INPUT_AGENT_TYPE AGENT_TYPE)"
 export AGENT_TYPE="${AGENT_TYPE:-copilot}"
+# The werfen-ai-agent devcontainer feature supplies the agent's skills and MCP
+# servers from the Werfen marketplace. "none" builds without it.
+export AGENT_FEATURE="$(pick PIPE_INPUT_AGENT_FEATURE AGENT_FEATURE)"
+export AGENT_FEATURE="${AGENT_FEATURE:-artifactory-munich.werfen.global:6556/werfen/devcontainer-features/werfen-ai-agent:1}"
+export AGENT_PLUGINS="$(pick PIPE_INPUT_AGENT_PLUGINS AGENT_PLUGINS)"
+export AGENT_PLUGINS="${AGENT_PLUGINS:-bitbucket}"
 
 # Secrets – never logged.  Exported so validate-config.sh (a child process)
 # can see them during validation.

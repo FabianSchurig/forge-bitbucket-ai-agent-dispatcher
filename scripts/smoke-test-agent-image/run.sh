@@ -9,10 +9,11 @@
 # shim, discovered only after a long Dev Container build.
 #
 # What it asserts:
-#   1. provision.sh installs bb-mcp, replays lifecycle commands, and installs
-#      exactly the baseline skills (not the skills directory's README).
-#   2. execute.sh runs as the container user, renders the MCP config, and
-#      composes a prompt carrying the pull request coordinates.
+#   1. provision.sh installs bb-mcp, replays lifecycle commands, and keeps the
+#      skills the werfen-ai-agent feature installed in the base image.
+#   2. execute.sh runs as the container user, merges its bitbucket server into
+#      the feature's MCP config, and composes a prompt carrying the pull
+#      request coordinates.
 #   3. The provisioning stage stays cached while the agent stage re-runs.
 #   4. No secret survives into the final image.
 #
@@ -47,18 +48,30 @@ echo "==> Building pipe image"
 docker build -q -t "$PIPE_IMAGE" "$REPO_ROOT/pipe" >/dev/null
 
 echo "==> Building stand-in base image"
-# Stands in for a source repository's Dev Container: a non-root user, and a
-# fake `copilot` so the run stage completes without a real agent or real token.
+# Stands in for a source repository's Dev Container built with the
+# werfen-ai-agent feature: a non-root user, a marketplace skill and MCP server
+# in its home, and a fake `copilot` so the run stage completes without a real
+# agent or real token.
 cat > "$WORKDIR/base.Dockerfile" <<'EOF'
 FROM debian:bookworm-slim
 RUN useradd -m -s /bin/bash vscode
-RUN printf '#!/bin/sh\n\
-echo "SMOKE_USER=$(id -un)"\n\
-echo "SMOKE_MCP=$(test -f $HOME/.copilot/mcp-config.json && echo yes || echo no)"\n\
-echo "SMOKE_SKILLS=$(ls $HOME/.copilot/skills 2>/dev/null | tr "\\n" ",")"\n\
-shift\n\
-echo "SMOKE_PROMPT_START"; echo "$1"; echo "SMOKE_PROMPT_END"\n' \
-    > /usr/local/bin/copilot && chmod +x /usr/local/bin/copilot
+RUN mkdir -p /usr/local/share/werfen-ai-agent /home/vscode/.copilot/skills/bitbucket-pr-review \
+ && echo '{"marketplaceRef":"smoke","plugins":["bitbucket","jama"]}' > /usr/local/share/werfen-ai-agent/installed.json \
+ && printf -- '---\nname: bitbucket-pr-review\ndescription: smoke\n---\n' > /home/vscode/.copilot/skills/bitbucket-pr-review/SKILL.md \
+ && echo '{"mcpServers":{"werfen-jama":{"command":"npx"},"bitbucket":{"command":"bb-mcp"}}}' > /home/vscode/.copilot/mcp-config.json \
+ && chown -R vscode /home/vscode
+COPY --chmod=0755 copilot /usr/local/bin/copilot
+EOF
+cat > "$WORKDIR/copilot" <<'EOF'
+#!/bin/sh
+MCP="$HOME/.copilot/mcp-config.json"
+echo "SMOKE_USER=$(id -un)"
+echo "SMOKE_MCP=$(test -f "$MCP" && echo yes || echo no)"
+echo "SMOKE_MCP_SERVERS=$(jq -r '.mcpServers | keys | join(",")' "$MCP")"
+echo "SMOKE_BB_TOKEN=$(jq -r '.mcpServers.bitbucket.env.BITBUCKET_TOKEN // "missing"' "$MCP" | cut -c1-5)"
+echo "SMOKE_SKILLS=$(ls "$HOME/.copilot/skills" 2>/dev/null | tr '\n' ',')"
+shift
+echo "SMOKE_PROMPT_START"; echo "$1"; echo "SMOKE_PROMPT_END"
 EOF
 docker build -q -t "$BASE_IMAGE" -f "$WORKDIR/base.Dockerfile" "$WORKDIR" >/dev/null
 
@@ -89,7 +102,7 @@ build() {
 }
 
 echo "==> First build"
-FIRST="$(build)"
+FIRST="$(build)" || { echo "$FIRST" | tail -40; exit 1; }
 
 echo "==> Assertions"
 grep -q 'SMOKE_LIFECYCLE_RAN'                 <<<"$FIRST" || fail "lifecycle.sh was not replayed"
@@ -98,15 +111,18 @@ pass "lifecycle commands replayed"
 grep -q 'bb-mcp .* installed successfully'    <<<"$FIRST" || fail "bb-mcp was not installed"
 pass "bb-mcp installed"
 
-grep -q 'Installed 1 baseline skill'          <<<"$FIRST" || fail "expected exactly 1 baseline skill"
-grep -q 'SMOKE_SKILLS=code-review-custom,'    <<<"$FIRST" || fail "skills dir has non-skill entries in it"
-pass "baseline skills installed, nothing extra"
+grep -q 'Installed 0 profile skill'           <<<"$FIRST" || fail "expected no profile skills"
+grep -q 'werfen-ai-agent: {'                  <<<"$FIRST" || fail "the feature's installed.json was not reported"
+grep -q 'SMOKE_SKILLS=bitbucket-pr-review,'   <<<"$FIRST" || fail "the feature's skill did not survive provisioning"
+pass "marketplace skills from the feature kept, nothing extra"
 
 grep -q 'SMOKE_USER=vscode'                   <<<"$FIRST" || fail "agent did not run as the container user"
 pass "agent runs as the container user"
 
 grep -q 'SMOKE_MCP=yes'                       <<<"$FIRST" || fail "MCP config was not rendered"
-pass "MCP config rendered"
+grep -q 'SMOKE_MCP_SERVERS=bitbucket,werfen-jama' <<<"$FIRST" || fail "the feature's MCP servers were not kept"
+grep -q 'SMOKE_BB_TOKEN=smoke'                <<<"$FIRST" || fail "the profile's bitbucket server did not override the feature's"
+pass "MCP config merged into the feature's"
 
 grep -q 'Pull request ID: 123'                <<<"$FIRST" || fail "prompt is missing the pull request coordinates"
 grep -q 'Repository: example-workspace/example-repo' <<<"$FIRST" || fail "prompt is missing the repository coordinates"

@@ -131,6 +131,13 @@ YAML
     mv "$RENDERED.tmp" "$RENDERED"
 fi
 
+# Merge into the config the werfen-ai-agent feature installed, so its servers
+# stay available; the profile's bitbucket entry (token, read-only) wins.
+if [ -s "$MCP_CONFIG" ]; then
+    jq -s '.[0] * {mcpServers: ((.[0].mcpServers // {}) + .[1].mcpServers)}' \
+        "$MCP_CONFIG" "$RENDERED" > "$RENDERED.tmp"
+    mv "$RENDERED.tmp" "$RENDERED"
+fi
 cp "$RENDERED" "$MCP_CONFIG"
 chmod 600 "$MCP_CONFIG"
 

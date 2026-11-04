@@ -75,6 +75,8 @@ sequenceDiagram
 | `COMMENT_TEXT` | ✅ | Raw text of the triggering PR comment – used as the Copilot prompt. |
 | `PR_ID` | ✅ | Pull-request numeric ID. Required so the agent can self-serve PR context through bb-mcp. |
 | `COMMENT_AUTHOR` |  | Atlassian account ID of the comment author (audit only). |
+| `AGENT_FEATURE` |  | Devcontainer feature that installs the agent's skills and MCP servers. Defaults to `artifactory-munich.werfen.global:6556/werfen/devcontainer-features/werfen-ai-agent:1`; `none` builds without it. |
+| `AGENT_PLUGINS` |  | Marketplace plugins the feature installs. Defaults to `bitbucket`. |
 | `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | GitHub Copilot token used by the Copilot profile. `COPILOT_TOKEN` is accepted as a legacy alias. |
 | `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. With `BITBUCKET_USERNAME` it uses username/token auth; without a username it uses Bearer auth. `BB_TOKEN` is accepted as a legacy alias. |
 | `BITBUCKET_USERNAME` | 🔒 | Optional Bitbucket username used with `BITBUCKET_TOKEN` for username/token auth. Omit it to use Bearer auth. `BB_USERNAME` is accepted as a legacy alias. |
@@ -212,7 +214,6 @@ pipe/
 │   ├── validate-config.sh              # fail-fast input validation
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
-  ├── skills/                   # baseline skills shared by all profiles
   └── agents/
     ├── copilot/
     │ ├── agent.env               # command, flags, model, secret, paths
@@ -233,6 +234,22 @@ pipe/
 with, `AGENT_HOME_DIR` / `AGENT_SKILLS_DIR` / `AGENT_MCP_CONFIG_PATH` locate its
 files under the container user's home, and an optional `install.sh` puts the
 agent CLI on the image when the base image does not already carry it.
+
+### Skills and MCP servers
+
+The pipe ships no skills. They come from the
+[Werfen marketplace](https://bitbucket.org/werfen/marketplace) through the
+`werfen-ai-agent` devcontainer feature: `run-agent.sh` adds it to the agent
+image with `devcontainer build --additional-features`, the Jenkins shared
+library adds it to the base image the same way, and a developer's devcontainer
+lists it directly. So a prompt such as "Use the bitbucket-pr-review skill"
+behaves the same in all three places. A source repository's own
+`.agents/skills/` loads on top and can replace a skill by name.
+
+`execute.sh` merges the profile's `bitbucket` server (token, read-only
+configuration) into the MCP config the feature installed, so the other plugin
+servers stay available. The feature also installs bb-mcp, so `provision.sh`
+only installs it when the base image lacks it.
 
 With `READ_ONLY=true` in the environment, `execute.sh` starts bb-mcp with a
 GET-only configuration, so the agent can read the pull request but has no write

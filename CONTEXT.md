@@ -37,7 +37,7 @@ executed by the build that creates it, and then discarded.
 
 **Agent profile**:
 A versioned bundle of everything that defines how one agent behaves — its
-command and flags, MCP configuration, instructions and baseline skills. Selected
+command and flags, bb-mcp configuration and instructions. Selected
 by `AGENT_TYPE`, and lives under `pipe/config/agents/<type>/`.
 _Avoid_: agent type, agent config
 
@@ -51,7 +51,10 @@ The Forge app that turns a Bitbucket pull request comment into a pipeline run.
 It decides *that* an agent should run and with what prompt; it never decides
 *how* the agent runs.
 
-**Baseline skill**:
-A skill shipped inside an agent profile and installed as a Copilot personal
-skill. Distinct from a **project skill**, which lives in the source repository's
-own `.agents/skills/` and layers over the baseline.
+**Marketplace skill**:
+A skill from the Werfen marketplace (`werfen/marketplace`), installed as a
+personal skill by the `werfen-ai-agent` devcontainer feature that both runtimes
+add to the base image, the same feature a developer's devcontainer lists.
+Distinct from a **project skill**, which lives in the source repository's own
+`.agents/skills/` and layers over it.
+_Avoid_: baseline skill

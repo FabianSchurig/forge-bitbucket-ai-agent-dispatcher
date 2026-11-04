@@ -74,14 +74,17 @@ fi
 # post its results back. This is the agent's only channel to Bitbucket, so a
 # failure here is fatal rather than a warning.
 # ---------------------------------------------------------------------------
-if ! command -v curl >/dev/null 2>&1; then
-    echo "ERROR: curl is required to install bb-mcp." >&2
-    exit 1
+if command -v bb-mcp >/dev/null 2>&1; then
+    echo "==> bb-mcp already installed at $(command -v bb-mcp) (werfen-ai-agent feature)"
+else
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "ERROR: curl is required to install bb-mcp." >&2
+        exit 1
+    fi
+    echo "==> Installing bb-mcp (bitbucket-cli @ ${BB_CLI_REF})"
+    curl -fsSL "https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/${BB_CLI_REF}/install.sh" \
+        | sh -s -- --binary bb-mcp
 fi
-
-echo "==> Installing bb-mcp (bitbucket-cli @ ${BB_CLI_REF})"
-curl -fsSL "https://raw.githubusercontent.com/FabianSchurig/bitbucket-cli/${BB_CLI_REF}/install.sh" \
-    | sh -s -- --binary bb-mcp
 
 # ---------------------------------------------------------------------------
 # Replay devcontainer lifecycle commands.
@@ -142,21 +145,27 @@ if [ -f "$AGENT_CONFIG_DIR/install.sh" ]; then
     bash "$AGENT_CONFIG_DIR/install.sh" "$CONTAINER_USER" "$CONTAINER_HOME"
 fi
 
-# Shared skills first, then the profile's own, so a profile can override a
-# shared skill by name. Only directories that actually contain a SKILL.md:
-# copying a tree wholesale would also install its README as though it were a
-# skill.
+# Shared skills are not shipped here: they come from the Werfen marketplace
+# through the werfen-ai-agent devcontainer feature, which the caller adds to
+# the base image. A profile may still carry skills of its own; those land on
+# top and win on a name clash. Only directories that actually contain a
+# SKILL.md are copied.
 SKILLS_TARGET="$CONTAINER_HOME/$AGENT_SKILLS_DIR"
 mkdir -p "$SKILLS_TARGET"
 skill_count=0
-for skill_dir in "$AGENT_ROOT"/config/skills/*/ "$AGENT_CONFIG_DIR"/skills/*/; do
+for skill_dir in "$AGENT_CONFIG_DIR"/skills/*/; do
     [ -f "${skill_dir}SKILL.md" ] || continue
     rm -rf "${SKILLS_TARGET:?}/$(basename "$skill_dir")"
     cp -R "$skill_dir" "$SKILLS_TARGET/"
     skill_count=$((skill_count + 1))
     echo "    + $(basename "$skill_dir")"
 done
-echo "==> Installed ${skill_count} baseline skill(s) into $SKILLS_TARGET"
+echo "==> Installed ${skill_count} profile skill(s) into $SKILLS_TARGET"
+if [ -f /usr/local/share/werfen-ai-agent/installed.json ]; then
+    echo "==> werfen-ai-agent: $(tr -d '\n' < /usr/local/share/werfen-ai-agent/installed.json)"
+else
+    echo "WARN: the werfen-ai-agent feature is not in the base image; the agent has no marketplace skills." >&2
+fi
 
 # ---------------------------------------------------------------------------
 # Ownership. execute.sh runs as $CONTAINER_USER and writes into the agent's

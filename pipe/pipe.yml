@@ -23,7 +23,7 @@ description: >-
 image: ghcr.io/fabianschurig/forge-bitbucket-ai-agent-dispatcher/ai-agent-pipe:latest
 
 # Semver of the pipe itself.  Bump on every behavioural change.
-version: 0.2.1
+version: 0.3.0
 
 # Inputs the dispatcher (or a human operator) can supply.  Each input is
 # mapped to an env var of the same name by entrypoint.sh.
@@ -52,6 +52,14 @@ variables:
   COMMENT_TEXT:
     description: Raw text of the triggering PR comment – used as the Copilot prompt.
     required: true
+  AGENT_FEATURE:
+    description: Devcontainer feature that installs the agent's skills and MCP servers from the Werfen marketplace, added to the agent image with --additional-features. "none" builds without it.
+    required: false
+    default: "artifactory-munich.werfen.global:6556/werfen/devcontainer-features/werfen-ai-agent:1"
+  AGENT_PLUGINS:
+    description: Comma-separated marketplace plugins the feature installs.
+    required: false
+    default: "bitbucket"
   COMMENT_AUTHOR:
     description: Atlassian account ID of the comment author (for audit logs).
     required: false
