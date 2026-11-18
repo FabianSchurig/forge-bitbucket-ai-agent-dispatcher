@@ -211,6 +211,7 @@ pipe/
 │   ├── run-agent.sh                    # clone + devcontainer build + run
 │   ├── provision.sh                    # root-side agent image prep (shared)
 │   ├── execute.sh                      # secret-bearing agent invocation (shared)
+│   ├── otlp-trace.sh                   # agent stream-json -> OpenTelemetry trace
 │   ├── validate-config.sh              # fail-fast input validation
 │   └── generate-lifecycle.js           # replay devcontainer lifecycle commands
 └── config/
@@ -257,6 +258,47 @@ operation to call; the prompt tells it to print its result instead.
 
 The Jenkins path supports the `cursor` profile. The Bitbucket Pipe entrypoint
 still materialises only the Copilot token.
+
+### Tracing with OpenTelemetry
+
+`execute.sh` exports nothing unless the agent's environment carries the
+standard OpenTelemetry variables. The caller sets them (the Jenkins path passes
+them as build args; the Bitbucket Pipe sets none):
+
+| Variable | Effect |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP base URL; turns tracing on. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` overrides the traces URL. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `k=v,k2=v2` request headers, for example a bearer token. |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | Service name and resource attributes of the trace. |
+| `TRACEPARENT` | W3C trace context, so the agent's trace continues the caller's (for example a CI build step). |
+
+Variables that are set but empty count as unset.
+
+- **Copilot** exports OpenTelemetry natively: an `invoke_agent` root span with
+  `chat` (model call) and `execute_tool` children. Content capture stays off
+  unless the caller sets `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`.
+- **Cursor** has no export of its own, so the profile sets
+  `AGENT_TRACE_FORMAT=cursor-stream-json` and `execute.sh` pipes the agent's
+  output through `scripts/otlp-trace.sh`. It passes the stream through
+  unchanged and, at the end of the run, sends one trace: an
+  `invoke_agent cursor` root span with model, session, result and token counts,
+  plus one `execute_tool <name>` span per tool call with
+  `gen_ai.tool.name`, `gen_ai.tool.type`, the MCP server and tool
+  (`mcp.server.name`, `mcp.tool.name`) and, for a `skills/<name>/SKILL.md`
+  read, `agent.skill.name` and an `agent.skill.invoked` event. Failed and
+  unfinished tool calls get an error status. Only metadata is exported:
+  prompts, responses, tool arguments and results are never sent.
+
+`otlp-trace.sh` sends OTLP JSON over HTTP, prints the trace id to stderr, and
+never fails the run: an unreachable collector is a warning. It also works on
+its own, for example in a devcontainer:
+
+```sh
+cursor-agent -p "..." --output-format stream-json \
+  | OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com otlp-trace.sh
+```
+
+`pipe/test/otlp-trace/run.sh` tests it against a recorded stream.
 
 ### Reuse from other CI systems
 
