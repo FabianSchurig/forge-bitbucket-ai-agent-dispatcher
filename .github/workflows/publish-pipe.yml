@@ -30,7 +30,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Nothing is published that has not passed the pipe's own tests: consumers
+  # pull :main and :sha-* directly.
+  test:
+    uses: ./.github/workflows/test-pipe-scripts.yml
+    permissions:
+      contents: read
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
 
     # Minimal permissions per security guidance in the ticket: only what's

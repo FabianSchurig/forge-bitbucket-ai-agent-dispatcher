@@ -34,13 +34,18 @@ for step_uuid in $STEPS; do
     bitbucket_curl "${API}/steps/${step_uuid}/log" > "/tmp/step-${step_uuid}.log"
 done
 
-if ! grep -q 'copilot' /tmp/step-*.log; then
-    echo "FAIL: no 'copilot' invocation found in pipeline logs." >&2
+if [ "$RESULT" != "SUCCESSFUL" ]; then
+    # The pipe's own error lines say what went wrong; Bitbucket has already
+    # masked secured variables in them.
+    grep -h -E '^(\+ )?(ERROR|WARN)' /tmp/step-*.log | head -n 10 | while IFS= read -r line; do
+        echo "::error::${line:0:300}"
+    done
+    echo "FAIL: pipeline ended with $RESULT." >&2
     exit 1
 fi
 
-if [ "$RESULT" != "SUCCESSFUL" ]; then
-    echo "FAIL: pipeline ended with $RESULT." >&2
+if ! grep -q "Running 'copilot'" /tmp/step-*.log; then
+    echo "FAIL: no copilot invocation found in pipeline logs." >&2
     exit 1
 fi
 

@@ -5,7 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-require_env BB_APP_PASSWORD BB_TEST_WORKSPACE BB_TEST_REPO
+# Without a configured test repository there is nothing to smoke-test against;
+# say so loudly instead of failing every publish.
+missing="$(missing_env BB_APP_PASSWORD BB_TEST_WORKSPACE BB_TEST_REPO | paste -sd, -)"
+if [ -n "$missing" ]; then
+    echo "::warning::Smoke test skipped: repository secret(s) ${missing} are not set."
+    exit 0
+fi
 
 BRANCH="${BB_TEST_BRANCH:-main}"
 IMAGE_TAG="${IMAGE_TAG:-main}"

@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
-# Tests the shell scripts the ai-agent-pipe image ships, on every change to
-# them, before publish-pipe.yml releases the image.
+# Tests the ai-agent-pipe image and the scripts it ships, on every change to
+# them. publish-pipe.yml calls this workflow and publishes only if it passes.
 # ---------------------------------------------------------------------------
 name: Test Pipe Scripts
 
@@ -8,19 +8,32 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'pipe/scripts/**'
-      - 'pipe/test/**'
+      - 'pipe/**'
+      - 'scripts/**'
       - '.github/workflows/test-pipe-scripts.yml'
   pull_request:
     paths:
-      - 'pipe/scripts/**'
-      - 'pipe/test/**'
+      - 'pipe/**'
+      - 'scripts/**'
       - '.github/workflows/test-pipe-scripts.yml'
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -S warning -x pipe/entrypoint.sh pipe/scripts/*.sh pipe/config/agents/*/install.sh \
+            pipe/test/*/run.sh scripts/*/*.sh
+
   otlp-trace:
     runs-on: ubuntu-latest
     steps:
@@ -35,3 +48,13 @@ jobs:
         run: |
           docker run --rm -v "$PWD/pipe:/pipe:ro" debian:bookworm bash -c \
             'apt-get update -qq && apt-get install -y -qq jq curl python3 >/dev/null && /pipe/test/otlp-trace/run.sh'
+
+  pipe-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Pipe image end to end
+        run: pipe/test/pipe-e2e/run.sh

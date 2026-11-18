@@ -4,9 +4,11 @@
 # then polls the resulting pipeline until completion and asserts that the
 # Copilot CLI was actually invoked.
 #
-# Required repository secrets:
-#   BB_APP_PASSWORD       - Bitbucket app password or access token with `pipelines:write`
-#   BB_USERNAME           - Optional Bitbucket username for HTTP Basic auth.
+# Required repository secrets (the job is skipped with a warning without them):
+#   BB_APP_PASSWORD       - Atlassian API token, or a repository/workspace access
+#                           token, with `pipelines:write`. (Bitbucket app
+#                           passwords are retired.)
+#   BB_USERNAME           - Account email for an API token (HTTP Basic auth).
 #                           Omit it to use BB_APP_PASSWORD as a Bearer token.
 #   BB_TEST_WORKSPACE     - Workspace slug owning the test target repo
 #   BB_TEST_REPO          - Repo slug of the test target repo
@@ -57,6 +59,7 @@ jobs:
         run: scripts/smoke-test-pipe/trigger.sh
 
       - name: Poll pipeline until completion
+        if: steps.trigger.outputs.pipeline_uuid != ''
         env:
           BB_USERNAME: ${{ secrets.BB_USERNAME }}
           BB_APP_PASSWORD: ${{ secrets.BB_APP_PASSWORD }}
