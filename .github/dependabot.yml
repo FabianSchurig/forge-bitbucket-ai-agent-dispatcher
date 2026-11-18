@@ -34,6 +34,31 @@ updates:
           - 'jest-*'
           - '@testing-library/*'
           - 'babel-jest'
+    ignore:
+      # @forge/react bundles react-reconciler 0.29 and depends on react ^18, so
+      # a top-level React 19 would load a second React and break hooks. Lift
+      # this once @forge/react supports React 19.
+      - dependency-name: 'react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'react-dom'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      # @typescript-eslint supports typescript <6.1; TypeScript 7 fails npm ci
+      # on the peer range. Lift this once typescript-eslint supports it.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
+
+  # The pipe image's base image and anything else pinned in pipe/Dockerfile.
+  - package-ecosystem: docker
+    directory: /pipe
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    labels:
+      - dependencies
 
   # Keep GitHub Actions versions pinned to current major refs up to date so
   # the security workflow itself doesn't go stale.
