@@ -477,7 +477,7 @@ export const SettingsForm = () => {
           <Heading as="h3">Pipeline Variables</Heading>
           <Text>
             Extra variables forwarded with every dispatched pipeline. Use
-            this to inject per-project secrets (e.g. COPILOT_GITHUB_TOKEN,
+            this to inject per-project secrets (e.g. COPILOT_GITHUB_TOKEN, CURSOR_API_KEY,
             BITBUCKET_TOKEN, SSH_KEY) without configuring them on every
             spoke repository. When Secured is on, Bitbucket masks the
             value in pipeline logs and the settings page never reads it

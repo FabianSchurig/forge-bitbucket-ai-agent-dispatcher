@@ -59,14 +59,27 @@ AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$AGENT_HOME_DIR/skills}"
 # alone so we do not disturb a carefully pinned toolchain (these images carry
 # cross-compile SDKs).
 # ---------------------------------------------------------------------------
-if command -v apt-get >/dev/null 2>&1; then
+# `apt-get install` of a package that is already there would upgrade it, so
+# only what is missing is installed, and nothing at all when it is all there.
+missing_apt=()
+missing_apk=()
+[ -s /etc/ssl/certs/ca-certificates.crt ] || { missing_apt+=(ca-certificates); missing_apk+=(ca-certificates); }
+command -v curl >/dev/null 2>&1     || { missing_apt+=(curl);         missing_apk+=(curl); }
+command -v envsubst >/dev/null 2>&1 || { missing_apt+=(gettext-base); missing_apk+=(gettext); }
+command -v jq >/dev/null 2>&1       || { missing_apt+=(jq);           missing_apk+=(jq); }
+
+if [ "${#missing_apt[@]}" -eq 0 ]; then
+    echo "==> ca-certificates, curl, envsubst and jq already present"
+elif command -v apt-get >/dev/null 2>&1; then
+    echo "==> Installing ${missing_apt[*]}"
     apt-get update
-    apt-get install -y --no-install-recommends ca-certificates curl gettext-base jq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing_apt[@]}"
     rm -rf /var/lib/apt/lists/*
 elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache ca-certificates curl gettext jq
+    echo "==> Installing ${missing_apk[*]}"
+    apk add --no-cache "${missing_apk[@]}"
 else
-    echo "WARN: neither apt-get nor apk found; assuming ca-certificates/curl/jq are present." >&2
+    echo "WARN: neither apt-get nor apk found, and ${missing_apt[*]} missing; execute.sh may fail." >&2
 fi
 
 # ---------------------------------------------------------------------------

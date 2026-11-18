@@ -3,13 +3,11 @@
 # ai-agent-pipe entrypoint.
 #
 # Responsibilities (kept intentionally small):
-#   1. Validate required inputs are present (delegated to validate-config.sh).
-#   2. Materialise secrets to short-lived files on tmpfs (/tmp) so:
-#         - docker build --secret can mount them, and
-#         - they never appear in `ps` output or image layers.
-#   3. Configure ssh-agent with the supplied deploy key.
-#   4. Hand off to scripts/run-agent.sh, which does the actual clone +
-#      devcontainer build + agent invocation.
+#   1. Map the pipe's inputs onto the bare variable names run-agent.sh reads.
+#   2. Validate them up-front, so a misconfigured pipeline fails in seconds
+#      with a clear message instead of after a long devcontainer build.
+#   3. Hand the secrets to run-agent.sh under internal names only, so nothing
+#      run-agent.sh starts - devcontainer build, docker build - inherits them.
 #
 # Inputs are read from environment variables.  The pipe accepts both the
 # Bitbucket Pipes convention (`PIPE_INPUT_FOO`) and the bare variable name
@@ -20,15 +18,22 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+SCRIPTS_DIR=/usr/local/bin/scripts
+PIPE_CONFIG_DIR="${PIPE_CONFIG_DIR:-/usr/local/share/ai-agent-pipe/config}"
+
 # ---------------------------------------------------------------------------
 # Helper: pick the first non-empty value from a list of env-var names.
 # Usage: pick FOO PIPE_INPUT_FOO  ->  echoes the first non-empty value, or ""
+#
+# A value that is nothing but a reference such as "$CURSOR_API_KEY" is a
+# pipeline variable that was never defined, passed through unexpanded, and
+# counts as empty.
 # ---------------------------------------------------------------------------
 pick() {
     local name value
     for name in "$@"; do
         value="${!name:-}"
-        if [ -n "$value" ]; then
+        if [ -n "$value" ] && ! [[ "$value" =~ ^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$ ]]; then
             printf '%s' "$value"
             return 0
         fi
@@ -36,104 +41,118 @@ pick() {
     printf ''
 }
 
-# ---------------------------------------------------------------------------
-# Map inputs.  We export so child processes (run-agent.sh, docker build) see
-# them.  Secrets are deliberately NOT echoed – the `set -x` trace is left
-# off by default.
-# ---------------------------------------------------------------------------
-export SOURCE_WORKSPACE="$(pick PIPE_INPUT_SOURCE_WORKSPACE SOURCE_WORKSPACE)"
-export SOURCE_REPO="$(pick PIPE_INPUT_SOURCE_REPO SOURCE_REPO)"
-export SOURCE_BRANCH="$(pick PIPE_INPUT_SOURCE_BRANCH SOURCE_BRANCH)"
-export PR_ID="$(pick PIPE_INPUT_PR_ID PR_ID)"
-export COMMENT_TEXT="$(pick PIPE_INPUT_COMMENT_TEXT COMMENT_TEXT)"
-export COMMENT_AUTHOR="$(pick PIPE_INPUT_COMMENT_AUTHOR COMMENT_AUTHOR)"
-export AGENT_TYPE="$(pick PIPE_INPUT_AGENT_TYPE AGENT_TYPE)"
-export AGENT_TYPE="${AGENT_TYPE:-copilot}"
-# The werfen-ai-agent devcontainer feature supplies the agent's skills and MCP
-# servers from the Werfen marketplace. "none" builds without it.
-export AGENT_FEATURE="$(pick PIPE_INPUT_AGENT_FEATURE AGENT_FEATURE)"
-export AGENT_FEATURE="${AGENT_FEATURE:-artifactory-munich.werfen.global:6556/werfen/devcontainer-features/werfen-ai-agent:1}"
-export AGENT_PLUGINS="$(pick PIPE_INPUT_AGENT_PLUGINS AGENT_PLUGINS)"
-export AGENT_PLUGINS="${AGENT_PLUGINS:-bitbucket}"
+# Helper: pick an input by name, trying PIPE_INPUT_<NAME>, PIPE_SECRET_<NAME>
+# and <NAME> for the name and then for each legacy alias.
+# Usage: pick_input COPILOT_GITHUB_TOKEN COPILOT_TOKEN
+input_names() {
+    local name
+    for name in "$@"; do
+        printf '%s\n' "PIPE_INPUT_$name" "PIPE_SECRET_$name" "$name"
+    done
+}
+pick_input() {
+    local -a names
+    mapfile -t names < <(input_names "$@")
+    pick "${names[@]}"
+}
 
-# Secrets – never logged.  Exported so validate-config.sh (a child process)
-# can see them during validation.
-export COPILOT_TOKEN_VALUE="$(pick PIPE_INPUT_COPILOT_GITHUB_TOKEN PIPE_SECRET_COPILOT_GITHUB_TOKEN COPILOT_GITHUB_TOKEN PIPE_INPUT_COPILOT_TOKEN PIPE_SECRET_COPILOT_TOKEN COPILOT_TOKEN)"
-export BB_TOKEN_VALUE="$(pick PIPE_INPUT_BITBUCKET_TOKEN PIPE_SECRET_BITBUCKET_TOKEN BITBUCKET_TOKEN PIPE_INPUT_BB_TOKEN PIPE_SECRET_BB_TOKEN BB_TOKEN)"
-export BB_USERNAME_VALUE="$(pick PIPE_INPUT_BITBUCKET_USERNAME PIPE_SECRET_BITBUCKET_USERNAME BITBUCKET_USERNAME PIPE_INPUT_BB_USERNAME PIPE_SECRET_BB_USERNAME BB_USERNAME)"
-export SSH_KEY_VALUE="$(pick PIPE_INPUT_SSH_KEY PIPE_SECRET_SSH_KEY SSH_KEY)"
-
-if [ "$AGENT_TYPE" != "copilot" ]; then
-    echo "ERROR: unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: copilot." >&2
-    exit 2
-fi
-
-# ---------------------------------------------------------------------------
-# Validate required inputs / secrets up-front and fail fast with a clear
-# message.  validate-config.sh receives only the names of variables so no
-# secret value is passed on the command line.
-# ---------------------------------------------------------------------------
-/usr/local/bin/scripts/validate-config.sh \
-    SOURCE_WORKSPACE \
-    SOURCE_REPO \
-    SOURCE_BRANCH \
-    COMMENT_TEXT \
-    AGENT_TYPE \
-    COPILOT_TOKEN_VALUE \
-    BB_TOKEN_VALUE \
-    SSH_KEY_VALUE
-
-# ---------------------------------------------------------------------------
-# Materialise secrets onto tmpfs.  Bitbucket Pipelines runners use tmpfs for
-# /tmp, so these files vanish when the step ends and are never written to
-# any persistent layer.  Mode 600 to keep them readable only by root inside
-# the container.
-# ---------------------------------------------------------------------------
-SECRETS_DIR="${SECRETS_DIR:-/tmp/ai-agent-pipe.secrets}"
-mkdir -p "$SECRETS_DIR"
-chmod 700 "$SECRETS_DIR"
-
-umask 077
-printf '%s' "$COPILOT_TOKEN_VALUE" > "$SECRETS_DIR/COPILOT_GITHUB_TOKEN"
-printf '%s' "$BB_TOKEN_VALUE"      > "$SECRETS_DIR/BITBUCKET_TOKEN"
-printf '%s' "$BB_USERNAME_VALUE"   > "$SECRETS_DIR/BITBUCKET_USERNAME"
-
-# SSH key handling.  We always normalise to ~/.ssh/id_ed25519 so run-agent.sh
-# can rely on a fixed path.  A trailing newline is added because some keys
-# (notably those copied from the UI) lose it and OpenSSH refuses them.
-mkdir -p "$HOME/.ssh"
-chmod 700 "$HOME/.ssh"
-{
-    printf '%s' "$SSH_KEY_VALUE"
-    # Append a newline only if the key did not already end with one.
-    case "$SSH_KEY_VALUE" in
-        *$'\n') ;;
-        *) printf '\n' ;;
-    esac
-} > "$HOME/.ssh/id_ed25519"
-chmod 600 "$HOME/.ssh/id_ed25519"
-
-# Trust bitbucket.org's host keys out-of-the-box so the clone does not
-# prompt.  We embed the published keys from Bitbucket's documentation
-# (https://support.atlassian.com/bitbucket-cloud/docs/configure-ssh-and-two-step-verification/)
-# rather than running ssh-keyscan at runtime, which would be vulnerable to
-# MITM during the scan.
-cat >> "$HOME/.ssh/known_hosts" <<'KNOWN_HOSTS'
-bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e5POber2cZ5F5PVstBEE0GbCOphq2Bm0RB/gEEhGOlSkaKNDWKKWmqtWvWBNXvHTCmG4pCl4gvYVhqsXj/pxEX9GrGdJmxZP0gSKi3BDpFPiVBLLI6M4Xl5jAFhlcNM0zmzX30RbJMJPH6+b3c1Elu2VJEJmqJwWGEG8Qc6PFKfFpKkHJhBZ/cPMD+W4c50v2IkRXgMHIJx0Mx+xNkMWNB90K0SmFNeTLmPIbOQZndOJMGU+Ql3Q48XH9JiDLbhJIl+V/k8N+8r3eMfTjmPRjsm+M2PiWtfi6YSRBI/qlNE/zrdKaBTMqrRxQ1gKVRHVDR1LIGGpYVZOZyJBkS8xtEzW7gSH3NxEPlFEE7p06Ba/R5zF/RF/3ISVtFbOvzBbkx+SV3V/a2vlZVYzzPL9n/B+5hkB7nVbNSynIaOSGqEm/Fy6MZ2lGISoGMIX5E49L7mMZT1FdaVLfjSQmc2YYAP0Ia4j0mm0=
-bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
-bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO
-KNOWN_HOSTS
-chmod 644 "$HOME/.ssh/known_hosts"
-
-# Start an ssh-agent for this step and load the key.
-eval "$(ssh-agent -s)" >/dev/null
-ssh-add "$HOME/.ssh/id_ed25519" >/dev/null 2>&1 || {
-    echo "ERROR: failed to add SSH key to ssh-agent." >&2
-    exit 2
+die() {
+    local status="$1"
+    shift
+    printf 'ERROR: %s\n' "$@" >&2
+    exit "$status"
 }
 
 # ---------------------------------------------------------------------------
-# Hand off.  exec replaces this process so the agent's exit code is what the
-# Pipelines step sees.
+# Non-secret inputs.  Exported so run-agent.sh sees them.
 # ---------------------------------------------------------------------------
-exec /usr/local/bin/scripts/run-agent.sh
+for name in SOURCE_WORKSPACE SOURCE_REPO SOURCE_BRANCH PR_ID COMMENT_TEXT COMMENT_AUTHOR \
+            AGENT_TYPE AGENT_MODEL READ_ONLY AGENT_FEATURE AGENT_PLUGINS \
+            DEVCONTAINER_CONFIG SOURCE_CLONE_URL SSH_KNOWN_HOSTS \
+            OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT \
+            OTEL_EXPORTER_OTLP_PROTOCOL OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT; do
+    value="$(pick_input "$name")"
+    export "$name=$value"
+done
+export AGENT_TYPE="${AGENT_TYPE:-copilot}"
+# The werfen-ai-agent devcontainer feature supplies the agent's skills and MCP
+# servers from the Werfen marketplace. "none" builds without it.
+export AGENT_FEATURE="${AGENT_FEATURE:-artifactory-munich.werfen.global:6556/werfen/devcontainer-features/werfen-ai-agent:1}"
+export AGENT_PLUGINS="${AGENT_PLUGINS:-bitbucket}"
+export SOURCE_CLONE_URL="${SOURCE_CLONE_URL:-git@bitbucket.org:${SOURCE_WORKSPACE}/${SOURCE_REPO}.git}"
+
+# ---------------------------------------------------------------------------
+# Agent profile.  Any directory under config/agents/ with an agent.env is a
+# profile; the profile names the secret its agent authenticates with.
+# ---------------------------------------------------------------------------
+[[ "$AGENT_TYPE" =~ ^[a-z0-9][a-z0-9_-]*$ ]] \
+    || die 2 "AGENT_TYPE '$AGENT_TYPE' is not a valid profile name."
+PROFILE_ENV="$PIPE_CONFIG_DIR/agents/$AGENT_TYPE/agent.env"
+if [ ! -f "$PROFILE_ENV" ]; then
+    profiles="$(find "$PIPE_CONFIG_DIR/agents" -mindepth 2 -maxdepth 2 -name agent.env -printf '%h\n' 2>/dev/null \
+        | xargs -r -n1 basename | sort | paste -sd, - | sed 's/,/, /g')"
+    die 2 "unsupported AGENT_TYPE '$AGENT_TYPE'. Supported values: ${profiles:-none}."
+fi
+
+# shellcheck source=/dev/null
+AGENT_SECRET_NAME="$(source "$PROFILE_ENV" && printf '%s' "${AGENT_SECRET_NAME:-COPILOT_GITHUB_TOKEN}")"
+# shellcheck source=/dev/null
+AGENT_SECRET_ALIASES="$(source "$PROFILE_ENV" && printf '%s' "${AGENT_SECRET_ALIASES:-}")"
+[[ "$AGENT_SECRET_NAME" =~ ^[A-Z][A-Z0-9_]*$ ]] \
+    || die 2 "profile '$AGENT_TYPE' names an invalid AGENT_SECRET_NAME '$AGENT_SECRET_NAME'."
+export AGENT_SECRET_NAME
+
+# ---------------------------------------------------------------------------
+# Secrets – never logged, never exported under their own names.
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC2086 # AGENT_SECRET_ALIASES is a word list.
+agent_secret="$(pick_input "$AGENT_SECRET_NAME" $AGENT_SECRET_ALIASES)"
+bitbucket_token="$(pick_input BITBUCKET_TOKEN BB_TOKEN)"
+bitbucket_username="$(pick_input BITBUCKET_USERNAME BB_USERNAME)"
+ssh_key="$(pick_input SSH_KEY)"
+otel_headers="$(pick_input OTEL_EXPORTER_OTLP_HEADERS)"
+otel_traces_headers="$(pick_input OTEL_EXPORTER_OTLP_TRACES_HEADERS)"
+
+# ---------------------------------------------------------------------------
+# Validate required inputs / secrets up-front and fail fast with a clear
+# message.  validate-config.sh receives only the names of variables, and the
+# secrets are exported only into the subshell that runs it, so no secret value
+# is passed on a command line.
+# ---------------------------------------------------------------------------
+required=(SOURCE_WORKSPACE SOURCE_REPO SOURCE_BRANCH COMMENT_TEXT "$AGENT_SECRET_NAME" BITBUCKET_TOKEN)
+case "$SOURCE_CLONE_URL" in
+    git@*|ssh://*) required+=(SSH_KEY) ;;
+esac
+(
+    export "$AGENT_SECRET_NAME=$agent_secret" BITBUCKET_TOKEN="$bitbucket_token" SSH_KEY="$ssh_key"
+    "$SCRIPTS_DIR/validate-config.sh" "${required[@]}"
+)
+
+# Slugs end up in a clone URL and an image tag; Bitbucket allows only these.
+for name in SOURCE_WORKSPACE SOURCE_REPO; do
+    [[ "${!name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+        || die 2 "$name '${!name}' is not a valid Bitbucket slug."
+done
+[ -z "$PR_ID" ] || [[ "$PR_ID" =~ ^[0-9]+$ ]] \
+    || die 2 "PR_ID '$PR_ID' is not a pull request number."
+
+# ---------------------------------------------------------------------------
+# Hand off.  The raw secret inputs are removed from the environment and the
+# values travel under internal names, which run-agent.sh moves into shell
+# variables and unsets before it starts anything.  exec replaces this
+# process so the agent's exit code is what the Pipelines step sees.
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC2046,SC2086
+unset $(input_names "$AGENT_SECRET_NAME" $AGENT_SECRET_ALIASES BITBUCKET_TOKEN BB_TOKEN \
+            BITBUCKET_USERNAME BB_USERNAME SSH_KEY \
+            OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS)
+
+export AI_AGENT_PIPE_SECRET_AGENT="$agent_secret" \
+       AI_AGENT_PIPE_SECRET_BITBUCKET_TOKEN="$bitbucket_token" \
+       AI_AGENT_PIPE_SECRET_BITBUCKET_USERNAME="$bitbucket_username" \
+       AI_AGENT_PIPE_SECRET_SSH_KEY="$ssh_key" \
+       AI_AGENT_PIPE_SECRET_OTEL_HEADERS="$otel_headers" \
+       AI_AGENT_PIPE_SECRET_OTEL_TRACES_HEADERS="$otel_traces_headers"
+unset agent_secret bitbucket_token bitbucket_username ssh_key otel_headers otel_traces_headers
+
+exec "$SCRIPTS_DIR/run-agent.sh"

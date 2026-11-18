@@ -21,10 +21,13 @@
 #   AGENT_MODEL                    model override
 #   READ_ONLY                      "true" restricts bb-mcp to GET operations
 #   OTEL_EXPORTER_OTLP_ENDPOINT,   standard OpenTelemetry settings. When an
-#   OTEL_EXPORTER_OTLP_*,          endpoint is set, agents that export
-#   OTEL_SERVICE_NAME,             natively (Copilot) pick these up, and a
-#   OTEL_RESOURCE_ATTRIBUTES,      profile with AGENT_TRACE_FORMAT has its
-#   TRACEPARENT                    output turned into a trace by otlp-trace.sh.
+#   OTEL_EXPORTER_OTLP_*,          endpoint is set, a profile with
+#   OTEL_SERVICE_NAME,             AGENT_OTEL_NATIVE=true (Copilot) exports
+#   OTEL_RESOURCE_ATTRIBUTES,      them itself, and a profile with
+#   TRACEPARENT                    AGENT_TRACE_FORMAT has its output turned
+#                                  into a trace by otlp-trace.sh. The two
+#                                  *_HEADERS settings may instead be mounted
+#                                  as secrets of the same name.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -50,13 +53,10 @@ case "${READ_ONLY:-false}" in
     *)                    READ_ONLY=false ;;
 esac
 
-# Callers pass these as build args, which arrive as empty variables when
-# unused. Some exporters treat a set-but-empty endpoint as enabled.
-for otel_var in OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT \
-                OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_HEADERS \
-                OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT; do
-    [ -n "${!otel_var:-}" ] || unset "$otel_var"
-done
+OTEL_VARS=(OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+           OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+           OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS
+           OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT)
 
 # ---------------------------------------------------------------------------
 # Secrets. Read from the mount rather than the environment so they are never
@@ -93,6 +93,21 @@ fi
 export "${AGENT_SECRET_NAME}=${AGENT_SECRET_VALUE}"
 unset AGENT_SECRET_VALUE
 export BITBUCKET_TOKEN BITBUCKET_USERNAME
+
+# OTLP headers usually carry a collector credential, so a caller may mount
+# them as secrets rather than pass them as build args.
+for otel_var in OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS; do
+    if [ -z "${!otel_var:-}" ]; then
+        printf -v "$otel_var" '%s' "$(read_secret "$otel_var")"
+        export "${otel_var?}"
+    fi
+done
+
+# Callers pass these as build args, which arrive as empty variables when
+# unused. Some exporters treat a set-but-empty endpoint as enabled.
+for otel_var in "${OTEL_VARS[@]}"; do
+    [ -n "${!otel_var:-}" ] || unset "$otel_var"
+done
 
 # ---------------------------------------------------------------------------
 # Render the MCP configuration.
@@ -238,33 +253,72 @@ if [ -n "${AGENT_MODEL:-}" ]; then
     MODEL_FLAG="--model=$AGENT_MODEL"
 fi
 
-TELEMETRY_ENDPOINT="${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
-echo "==> Running '$AGENT_COMMAND' (profile: $AGENT_TYPE, model: ${AGENT_MODEL:-default}, read-only: $READ_ONLY, telemetry: ${TELEMETRY_ENDPOINT:-off})"
+# ---------------------------------------------------------------------------
+# Telemetry: off unless an OTLP endpoint is configured.
+# ---------------------------------------------------------------------------
+TRACES_ENDPOINT="${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}"
+if [ -z "$TRACES_ENDPOINT" ] && [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+    TRACES_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT%/}/v1/traces"
+fi
+TRACE_OUTPUT=false
+TELEMETRY="off"
+if [ -z "$TRACES_ENDPOINT" ]; then
+    :
+elif [ -n "${AGENT_TRACE_FORMAT:-}" ]; then
+    TRACE_OUTPUT=true
+    TELEMETRY="$TRACES_ENDPOINT via otlp-trace.sh"
+elif [ "${AGENT_OTEL_NATIVE:-false}" = true ]; then
+    # Copilot switches export on only for the generic endpoint, and reads only
+    # the generic headers, so a traces-only configuration is mapped onto them.
+    # https://docs.github.com/en/copilot/reference/enterprise-administrators/opentelemetry-reference
+    if [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+        case "$TRACES_ENDPOINT" in
+            */v1/traces) export OTEL_EXPORTER_OTLP_ENDPOINT="${TRACES_ENDPOINT%/v1/traces}" ;;
+        esac
+    fi
+    if [ -z "${OTEL_EXPORTER_OTLP_HEADERS:-}" ] && [ -n "${OTEL_EXPORTER_OTLP_TRACES_HEADERS:-}" ]; then
+        export OTEL_EXPORTER_OTLP_HEADERS="$OTEL_EXPORTER_OTLP_TRACES_HEADERS"
+    fi
+    if [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+        echo "WARN: $AGENT_COMMAND exports only to OTEL_EXPORTER_OTLP_ENDPOINT, and" >&2
+        echo "      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT does not end in /v1/traces; telemetry is off." >&2
+    elif [[ "$OTEL_EXPORTER_OTLP_ENDPOINT" == http://* ]]; then
+        echo "WARN: $AGENT_COMMAND does not export to http:// endpoints; telemetry is off." >&2
+    else
+        TELEMETRY="$OTEL_EXPORTER_OTLP_ENDPOINT (native)"
+    fi
+else
+    echo "WARN: profile '$AGENT_TYPE' has no way to export traces; telemetry is off." >&2
+fi
+
+echo "==> Running '$AGENT_COMMAND' (profile: $AGENT_TYPE, model: ${AGENT_MODEL:-default}, read-only: $READ_ONLY, telemetry: $TELEMETRY)"
 
 # The agent's raw output, traced when the profile names its format and an
 # OTLP endpoint is configured; otherwise unchanged.
 trace_stream() {
-    if [ -n "${AGENT_TRACE_FORMAT:-}" ] && [ -n "$TELEMETRY_ENDPOINT" ]; then
+    if [ "$TRACE_OUTPUT" = true ]; then
         bash "$(dirname "${BASH_SOURCE[0]}")/otlp-trace.sh" "$AGENT_TRACE_FORMAT"
     else
         cat
     fi
 }
 
+# Lines that are not JSON objects pass through unchanged, so a CLI error
+# message is never swallowed. An event the filter cannot handle is printed
+# as-is too: a jq error here would end the pipe and, with it, the agent.
+output_filter() {
+    if [ -n "${AGENT_OUTPUT_FILTER:-}" ]; then
+        jq -rR --unbuffered ". as \$line | try (fromjson | if type == \"object\" then ($AGENT_OUTPUT_FILTER) else \$line end) catch \$line"
+    else
+        cat
+    fi
+}
+
+PROMPT="$(cat "$CONTEXT_FILE")"
 set +e
-if [ -n "${AGENT_OUTPUT_FILTER:-}" ]; then
-    # Lines that are not JSON pass through unchanged, so a CLI error message is
-    # never swallowed by the filter.
-    # shellcheck disable=SC2086
-    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG \
-        | trace_stream \
-        | jq -rR --unbuffered "(fromjson? // {raw: .}) | if .raw then .raw else ($AGENT_OUTPUT_FILTER) end"
-    agent_status=${PIPESTATUS[0]}
-else
-    # shellcheck disable=SC2086
-    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG | trace_stream
-    agent_status=${PIPESTATUS[0]}
-fi
+# shellcheck disable=SC2086
+"$AGENT_COMMAND" -p "$PROMPT" $AGENT_FLAGS $MODEL_FLAG | trace_stream | output_filter
+agent_status=${PIPESTATUS[0]}
 set -e
 
 echo "==> Agent exited with status ${agent_status}."
