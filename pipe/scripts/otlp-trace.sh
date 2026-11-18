@@ -21,9 +21,11 @@
 # Configuration uses the standard OpenTelemetry environment variables:
 #   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT  full traces URL, or else
 #   OTEL_EXPORTER_OTLP_ENDPOINT         base URL; /v1/traces is appended
-#   OTEL_EXPORTER_OTLP_HEADERS          k=v,k2=v2 request headers
+#   OTEL_EXPORTER_OTLP_TRACES_HEADERS   k=v,k2=v2 request headers, or else
+#   OTEL_EXPORTER_OTLP_HEADERS          the same for all signals
 #   OTEL_SERVICE_NAME                   default: cursor-agent
 #   OTEL_RESOURCE_ATTRIBUTES            k=v,k2=v2 resource attributes
+# Values in both k=v lists are percent-decoded, as UTF-8.
 #   TRACEPARENT                         W3C parent, e.g. a CI build step
 # The payload is OTLP JSON whatever OTEL_EXPORTER_OTLP_PROTOCOL says.
 #   OTLP_TRACE_FILE                     also write the payload to this file
@@ -68,6 +70,35 @@ now_ms() {
 
 random_hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    printf '%s' "${s%"${s##*[![:space:]]}"}"
+}
+
+# %XX escapes are bytes, so a multi-byte UTF-8 character ("caf%C3%A9") has to
+# be decoded as a byte sequence, which printf %b does. Literal backslashes are
+# doubled first so they are not taken for escapes themselves.
+percent_decode() {
+    local s="${1//\\/\\\\}"
+    printf '%b' "${s//%/\\x}"
+}
+
+# Splits a k=v,k2=v2 list, the format of OTEL_RESOURCE_ATTRIBUTES and
+# OTEL_EXPORTER_OTLP_HEADERS, into NUL-separated key and value fields: keys
+# trimmed, values trimmed and percent-decoded.
+kv_pairs() {
+    local pair key
+    local -a pairs=()
+    IFS=',' read -ra pairs <<<"$1"
+    for pair in "${pairs[@]}"; do
+        [[ "$pair" == *=* ]] || continue
+        key="$(trim "${pair%%=*}")"
+        [ -n "$key" ] || continue
+        printf '%s\0%s\0' "$key" "$(percent_decode "$(trim "${pair#*=}")")"
+    done
+}
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -108,7 +139,10 @@ def epoch_ms: if . == null then null else (tonumber? // null) end;
                 else null end),
         started_ms: ($tc.startedAtMs | epoch_ms),
         completed_ms: ($tc.completedAtMs | epoch_ms),
-        outcome: (if ($p.result | type) == "object" then ($p.result | keys_unsorted | .[0]) else null end)
+        # An MCP tool that fails reports it inside a "success" envelope.
+        outcome: (if ($p.result | type) != "object" then null
+                  elif ($p.result.success | type) == "object" and $p.result.success.isError == true then "error"
+                  else ($p.result | keys_unsorted | .[0]) end)
       }
   elif $e.type == "result" then
     {t: $t, k: "result", subtype: $e.subtype, is_error: ($e.is_error // false),
@@ -131,14 +165,7 @@ def attr($k; $v):
   elif ($v | type) == "boolean" then {key: $k, value: {boolValue: $v}}
   elif ($v | type) == "number" then {key: $k, value: {intValue: ($v | floor | tostring)}}
   else {key: $k, value: {stringValue: ($v | tostring)}} end;
-def urldecode: gsub("%(?<h>[0-9A-Fa-f]{2})";
-  .h | ascii_downcase | explode | map(if . >= 97 then . - 87 else . - 48 end) | [.[0] * 16 + .[1]] | implode);
 def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
-def resource_attrs:
-  ($ENV.OTEL_RESOURCE_ATTRIBUTES // "") | split(",")
-  | map(select(contains("=")) | index("=") as $i
-        | {key: (.[:$i] | trim), value: (.[($i + 1):] | trim | urldecode)})
-  | map(select(.key != ""));
 def tokens($u; $names): [$names[] as $n | $u[$n] | select(type == "number")] | .[0];
 
 . as $ev
@@ -213,7 +240,7 @@ def tokens($u; $names): [$names[] as $n | $u[$n] | select(type == "number")] | .
              else {code: 0} end)
   }
 | (if $parent_id == "" then del(.parentSpanId) else . end) as $root
-| resource_attrs as $ra
+| $resource_attrs as $ra
 | ((($ENV.OTEL_SERVICE_NAME // "") | trim) as $s
    | if $s != "" then $s
      else ([$ra[] | select(.key == "service.name") | .value] | .[0] // "cursor-agent") end) as $service
@@ -257,7 +284,16 @@ if [[ "${TRACEPARENT:-}" =~ ^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{
 fi
 [ -n "$TRACE_ID" ] || TRACE_ID="$(random_hex 16)"
 
+RESOURCE_FIELDS=()
+while IFS= read -r -d '' field; do
+    RESOURCE_FIELDS+=("$field")
+done < <(kv_pairs "${OTEL_RESOURCE_ATTRIBUTES:-}")
+RESOURCE_ATTRS="$(jq -n -c '$ARGS.positional as $f
+    | [range(0; $f | length; 2) as $i | {key: $f[$i], value: $f[$i + 1]}]' \
+    --args ${RESOURCE_FIELDS[@]+"${RESOURCE_FIELDS[@]}"})" || RESOURCE_ATTRS='[]'
+
 if ! jq -s -c \
+        --argjson resource_attrs "$RESOURCE_ATTRS" \
         --arg trace_id "$TRACE_ID" \
         --arg parent_id "$PARENT_ID" \
         --arg root_id "$(random_hex 8)" \
@@ -284,18 +320,10 @@ fi
 # Headers go through a file, not argv, so a token never shows up in `ps`.
 HEADERS_FILE="$WORK/headers"
 ( umask 077; printf 'Content-Type: application/json\n' >"$HEADERS_FILE" )
-if [ -n "${OTEL_EXPORTER_OTLP_HEADERS:-}" ]; then
-    IFS=',' read -ra header_pairs <<<"$OTEL_EXPORTER_OTLP_HEADERS"
-    for pair in "${header_pairs[@]}"; do
-        [[ "$pair" == *=* ]] || continue
-        key="${pair%%=*}"
-        key="${key#"${key%%[![:space:]]*}"}"
-        key="${key%"${key##*[![:space:]]}"}"
-        value="${pair#*=}"
-        value="$(printf '%b' "${value//%/\\x}")"
-        [ -n "$key" ] && printf '%s: %s\n' "$key" "$value" >>"$HEADERS_FILE"
-    done
-fi
+# A decoded CR or LF would start a header of its own, so both are dropped.
+while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf '%s: %s\n' "${key//[$'\r\n']/}" "${value//[$'\r\n']/}" >>"$HEADERS_FILE"
+done < <(kv_pairs "${OTEL_EXPORTER_OTLP_TRACES_HEADERS:-${OTEL_EXPORTER_OTLP_HEADERS:-}}")
 
 HTTP_CODE="$(curl -sS -o "$WORK/response" -w '%{http_code}' \
     --max-time "${OTLP_TRACE_TIMEOUT:-10}" \

@@ -41,7 +41,7 @@ NORMALIZE='
 OTLP_TRACE_FILE="$WORK/payload.json" \
 TRACEPARENT="$TRACEPARENT_VALUE" \
 OTEL_SERVICE_NAME="test-agent" \
-OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=test, vcs.repository.name=acme%2Fexample,service.name=ignored" \
+OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=test, vcs.repository.name=acme%2Fexample,team.name=caf%C3%A9\\x,service.name=ignored" \
     bash "$SCRIPT" <"$FIXTURE" >"$WORK/stdout.txt" 2>"$WORK/stderr.txt"
 
 if cmp -s "$FIXTURE" "$WORK/stdout.txt"; then pass "stream passes through unchanged"; else fail "stream changed in transit"; fi
@@ -62,6 +62,20 @@ if jq -e '.resourceSpans[0].scopeSpans[0].spans
     pass "spans continue TRACEPARENT and end after they start"
 else
     fail "trace id or span timing is wrong"
+fi
+
+if jq -e '.resourceSpans[0].resource.attributes[] | select(.key == "team.name") | .value.stringValue == "café\\x"' \
+        "$WORK/payload.json" >/dev/null; then
+    pass "resource attributes are percent-decoded as UTF-8"
+else
+    fail "resource attribute decoding: $(jq -c '.resourceSpans[0].resource.attributes' "$WORK/payload.json")"
+fi
+
+if jq -e '[.resourceSpans[0].scopeSpans[0].spans[] | select(.attributes[] | .key == "gen_ai.tool.call.id" and .value.stringValue == "toolu_01MCPISERROR")]
+          | length == 1 and .[0].status.code == 2' "$WORK/payload.json" >/dev/null; then
+    pass "an MCP result flagged isError is a failed tool call"
+else
+    fail "MCP isError result not reported as an error"
 fi
 
 # --- 2. Disabled: no endpoint, no file -> plain cat ----------------------------
@@ -98,21 +112,24 @@ class Sink(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
     def log_message(self, *args): pass
 server = http.server.HTTPServer(("127.0.0.1", 0), Sink)
+# A missing export must fail the test, not hang it.
+server.timeout = 20
 port_file.write_text(str(server.server_port))
 server.handle_request()
 PY
     sink=$!
     for _ in $(seq 50); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done
     OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:$(cat "$PORT_FILE")/" \
-    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20test-token,X-Scope = ci" \
+    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20generic-token" \
+    OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer%20test-token,X-Scope = ci" \
         bash "$SCRIPT" <"$FIXTURE" >/dev/null 2>"$WORK/stderr-export.txt"
     wait "$sink" || true
     if [ -s "$WORK/received.json" ] \
        && head -n 1 "$WORK/received.headers" | grep -qx "/v1/traces" \
        && grep -q "^Authorization: Bearer test-token" "$WORK/received.headers" \
        && grep -q "^X-Scope: ci" "$WORK/received.headers" \
-       && grep -q "exported 9 spans" "$WORK/stderr-export.txt"; then
-        pass "exports to <endpoint>/v1/traces with decoded headers"
+       && grep -q "exported 10 spans" "$WORK/stderr-export.txt"; then
+        pass "exports to <endpoint>/v1/traces with decoded, traces-specific headers"
     else
         fail "HTTP export: $(cat "$WORK/stderr-export.txt")"
     fi

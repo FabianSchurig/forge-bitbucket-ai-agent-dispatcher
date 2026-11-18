@@ -17,6 +17,12 @@
       "value": {
         "stringValue": "acme/example"
       }
+    },
+    {
+      "key": "team.name",
+      "value": {
+        "stringValue": "café\\x"
+      }
     }
   ],
   "scope": {
@@ -82,7 +88,7 @@
         {
           "key": "agent.tool_calls",
           "value": {
-            "intValue": "8"
+            "intValue": "9"
           }
         },
         {
@@ -303,6 +309,62 @@
       "traceId": "0af7651916cd43dd8448eb211c80319c",
       "spanId": "span-5",
       "parentSpanId": "span-0",
+      "name": "execute_tool bitbucket-bitbucket_pr",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "bitbucket-bitbucket_pr"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "extension"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01MCPISERROR"
+          }
+        },
+        {
+          "key": "mcp.method.name",
+          "value": {
+            "stringValue": "tools/call"
+          }
+        },
+        {
+          "key": "mcp.server.name",
+          "value": {
+            "stringValue": "bitbucket"
+          }
+        },
+        {
+          "key": "mcp.tool.name",
+          "value": {
+            "stringValue": "bitbucket_pr"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 2,
+        "message": "error"
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-6",
+      "parentSpanId": "span-0",
       "name": "execute_tool shell",
       "kind": 1,
       "attributes": [
@@ -338,7 +400,7 @@
     },
     {
       "traceId": "0af7651916cd43dd8448eb211c80319c",
-      "spanId": "span-6",
+      "spanId": "span-7",
       "parentSpanId": "span-0",
       "name": "execute_tool read",
       "kind": 1,
@@ -393,7 +455,7 @@
     },
     {
       "traceId": "0af7651916cd43dd8448eb211c80319c",
-      "spanId": "span-7",
+      "spanId": "span-8",
       "parentSpanId": "span-0",
       "name": "execute_tool todo_write",
       "kind": 1,
@@ -430,7 +492,7 @@
     },
     {
       "traceId": "0af7651916cd43dd8448eb211c80319c",
-      "spanId": "span-8",
+      "spanId": "span-9",
       "parentSpanId": "span-0",
       "name": "execute_tool grep",
       "kind": 1,
