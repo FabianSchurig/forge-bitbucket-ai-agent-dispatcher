@@ -92,7 +92,8 @@ without writing a PR comment.
    used, and the developer can refine the branch name in the panel.
 3. `fetchRepositories` (resolver, `asUser`) lists the Bitbucket repositories the
    user can write to, populating the repository selector.
-4. The developer picks a repository, optionally edits the branch, and clicks
+4. The developer picks a repository, optionally edits the branch, writes what
+   the agent should do in **What should the agent do?** (required), and clicks
    **Dispatch agent**.
 5. `dispatchAgent` (resolver) creates the branch (idempotently) and triggers an
    on-demand Bitbucket pipeline, returning the pipeline link.
@@ -111,6 +112,7 @@ ordinary environment variables — the runner's `bitbucket-pipelines.yml` reads:
 |---|---|
 | `$JIRA_ISSUE_KEY` | Key of the Jira issue (e.g. `PROJ-123`) |
 | `$JIRA_ISSUE_SUMMARY` | Summary of the Jira issue (empty — see "Why no Jira scopes?") |
+| `$COMMENT_TEXT` | The agent's prompt: `Jira issue: <KEY>`, a blank line, then the text from the panel — the same variable a PR comment fills |
 | `$SOURCE_WORKSPACE` / `$SOURCE_REPO` / `$SOURCE_BRANCH` | Target repository + branch |
 
 These are appended to the default on-demand YAML template (`DEFAULT_ONDEMAND_YAML`

@@ -10,7 +10,7 @@
  * the two dispatch flows.
  *
  * Security note: every piece of user-controlled Jira metadata (issue key,
- * summary) is passed as a pipeline *variable value*.  URLSearchParams
+ * summary) and the user's prompt is passed as a pipeline *variable value*.  URLSearchParams
  * percent-encodes those values, and Bitbucket exposes them to the runner as
  * ordinary environment variables.  Nothing is concatenated into shell commands
  * or into the URL structure, which is what neutralises prompt/command-injection
@@ -39,6 +39,8 @@ export interface JiraDispatchInput {
   issueKey: string;
   /** Jira issue summary (free-form, user-controlled). */
   issueSummary: string;
+  /** What the agent should do, as written in the panel (free-form). */
+  prompt: string;
 }
 
 /** The pieces needed to issue the on-demand pipelines API call. */
@@ -76,12 +78,17 @@ export function buildJiraDispatchRequest(
   // The Jira metadata becomes environment variables inside the runner. The
   // runner's bitbucket-pipelines.yml reads $JIRA_ISSUE_KEY / $JIRA_ISSUE_SUMMARY
   // (see README "Runner contract").
+  //
+  // COMMENT_TEXT is the agent's prompt, the same variable the PR-comment flow
+  // fills from the comment. The agent cannot read Jira, so the prompt names the
+  // issue it is about.
   const variables: Array<[string, string]> = [
     ['SOURCE_WORKSPACE', input.workspace],
     ['SOURCE_REPO', input.repoSlug],
     ['SOURCE_BRANCH', input.branch],
     ['JIRA_ISSUE_KEY', input.issueKey],
     ['JIRA_ISSUE_SUMMARY', input.issueSummary],
+    ['COMMENT_TEXT', `Jira issue: ${input.issueKey}\n\n${input.prompt}`],
   ];
 
   variables.forEach(([key, value], index) => {

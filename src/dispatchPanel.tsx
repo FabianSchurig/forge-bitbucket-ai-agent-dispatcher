@@ -5,7 +5,8 @@
  * inside the right-hand context panel of a Jira issue.  It lets a developer:
  *   1. Pick a target Bitbucket repository (fetched via the backend resolver).
  *   2. Review/edit an auto-generated branch name derived from the issue summary.
- *   3. Dispatch an AI-agent pipeline, then see the returned pipeline link.
+ *   3. Write the prompt: what the agent should do.
+ *   4. Dispatch an AI-agent pipeline, then see the returned pipeline link.
  *
  * All product/data access goes through the backend resolvers in
  * src/jiraResolvers.ts via @forge/bridge `invoke`, so this component contains
@@ -25,6 +26,7 @@ import ForgeReconciler, {
   Spinner,
   Stack,
   Text,
+  TextArea,
   Textfield,
 } from '@forge/react';
 import { invoke, view } from '@forge/bridge';
@@ -55,6 +57,9 @@ export const DispatchPanel = (): React.ReactElement => {
 
   const [issueKey, setIssueKey] = useState('');
   const [branch, setBranch] = useState('');
+  // The agent's instructions; the run has no pull request comment to take
+  // them from.
+  const [prompt, setPrompt] = useState('');
 
   const [repos, setRepos] = useState<RepositoryOption[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<RepositoryOption | null>(null);
@@ -96,8 +101,10 @@ export const DispatchPanel = (): React.ReactElement => {
     void load();
   }, []);
 
+  const canDispatch = selectedRepo !== null && prompt.trim().length > 0;
+
   const handleDispatch = async (): Promise<void> => {
-    if (!selectedRepo) {
+    if (!selectedRepo || !canDispatch) {
       return;
     }
     setDispatching(true);
@@ -108,6 +115,7 @@ export const DispatchPanel = (): React.ReactElement => {
         repoSlug: selectedRepo.repoSlug,
         issueKey,
         branch,
+        prompt,
       })) as DispatchResult;
       setResult(dispatchResult);
     } catch (err) {
@@ -154,9 +162,17 @@ export const DispatchPanel = (): React.ReactElement => {
         onChange={(e: ForgeInputEvent) => setBranch(String(e.target.value ?? ''))}
       />
 
+      <Label labelFor="prompt-field">What should the agent do?</Label>
+      <TextArea
+        id="prompt-field"
+        value={prompt}
+        placeholder="e.g. Summarise what this branch changes and what is still missing for the issue."
+        onChange={(e: ForgeInputEvent) => setPrompt(String(e.target.value ?? ''))}
+      />
+
       <Button
         appearance="primary"
-        isDisabled={!selectedRepo || dispatching}
+        isDisabled={!canDispatch || dispatching}
         onClick={handleDispatch}
       >
         {dispatching ? 'Dispatching…' : 'Dispatch agent'}

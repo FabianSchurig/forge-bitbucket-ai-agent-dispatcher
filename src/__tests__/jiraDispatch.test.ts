@@ -14,6 +14,7 @@ const baseInput = {
   branch: 'PROJ-123-fix-login',
   issueKey: 'PROJ-123',
   issueSummary: 'Fix login bug',
+  prompt: 'Summarise what is missing.',
 };
 
 describe('buildJiraDispatchRequest', () => {
@@ -71,9 +72,17 @@ describe('buildJiraDispatchRequest', () => {
       pipelineVariables: [{ key: 'CUSTOM_TOKEN', value: 'abc', secured: true }],
     });
     const req = buildJiraDispatchRequest(baseInput, config);
-    expect(req.queryParams.get('variables[5].key')).toBe('CUSTOM_TOKEN');
-    expect(req.queryParams.get('variables[5].value')).toBe('abc');
-    expect(req.queryParams.get('variables[5].secured')).toBe('true');
+    expect(req.queryParams.get('variables[6].key')).toBe('CUSTOM_TOKEN');
+    expect(req.queryParams.get('variables[6].value')).toBe('abc');
+    expect(req.queryParams.get('variables[6].secured')).toBe('true');
+  });
+
+  it("sends the user's prompt as COMMENT_TEXT, naming the issue", () => {
+    const req = buildJiraDispatchRequest(baseInput, makeConfig());
+    expect(req.queryParams.get('variables[5].key')).toBe('COMMENT_TEXT');
+    expect(req.queryParams.get('variables[5].value')).toBe(
+      'Jira issue: PROJ-123\n\nSummarise what is missing.',
+    );
   });
 
   it('rejects an unsafe workspace slug', () => {

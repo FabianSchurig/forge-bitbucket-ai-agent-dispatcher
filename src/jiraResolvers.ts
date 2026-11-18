@@ -144,6 +144,7 @@ resolver.define(
       issueKey?: string;
       issueSummary?: string;
       branch?: string;
+      prompt?: string;
     };
   }): Promise<DispatchAgentResult> => {
     try {
@@ -151,11 +152,15 @@ resolver.define(
       const repoSlug = (payload?.repoSlug ?? '').trim();
       const issueKey = (payload?.issueKey ?? '').trim();
       const issueSummary = payload?.issueSummary ?? '';
+      const prompt = (payload?.prompt ?? '').trim();
 
       // Validate the slugs up front so we never build an API path from unsafe
       // input. This throws CIProviderError, caught below.
       validateSlug(workspace, 'workspace slug', PROVIDER_NAME);
       validateSlug(repoSlug, 'repository slug', PROVIDER_NAME);
+      if (!prompt) {
+        throw new CIProviderError(PROVIDER_NAME, 'Describe what the agent should do.');
+      }
 
       // Every call below runs as the app, so check the caller's own access
       // before making any of them.
@@ -180,7 +185,7 @@ resolver.define(
       await createBranch(workspace, repoSlug, branch, repoInfo.mainBranch);
 
       const request = buildJiraDispatchRequest(
-        { workspace, repoSlug, branch, issueKey, issueSummary },
+        { workspace, repoSlug, branch, issueKey, issueSummary, prompt },
         config,
       );
 

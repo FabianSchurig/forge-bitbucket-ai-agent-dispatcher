@@ -87,6 +87,7 @@ describe('dispatchAgent', () => {
     repoSlug: 'my-repo',
     issueKey: 'PROJ-7',
     issueSummary: 'Fix the login bug',
+    prompt: 'Summarise what is missing.',
   };
   /** The asUser write-access check that precedes every dispatch. */
   const canWrite = () => res({ values: [{ full_name: 'my-ws/my-repo' }] });
@@ -177,6 +178,28 @@ describe('dispatchAgent', () => {
     const result = (await invoke('dispatchAgent', payload)) as { success: boolean };
     expect(result.success).toBe(false);
     expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an empty prompt before making any call', async () => {
+    const result = (await invoke('dispatchAgent', { ...payload, prompt: '   ' })) as {
+      success: boolean;
+      message: string;
+    };
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/what the agent should do/);
+    expect(mockRequestBitbucket).not.toHaveBeenCalled();
+  });
+
+  it("forwards the user's prompt to the pipeline as COMMENT_TEXT", async () => {
+    mockRequestBitbucket.mockResolvedValueOnce(canWrite());
+    mockRequestBitbucket.mockResolvedValueOnce(res({ mainbranch: { name: 'main' } }));
+    mockRequestBitbucket.mockResolvedValueOnce(res({}, true, 201));
+    mockRequestBitbucket.mockResolvedValueOnce(res({ uuid: '{p}', build_number: 1 }));
+
+    await invoke('dispatchAgent', payload);
+    const pipelineUrl = decodeURIComponent(String(mockRequestBitbucket.mock.calls[3][0]));
+    expect(pipelineUrl).toContain('COMMENT_TEXT');
+    expect(pipelineUrl).toContain('Summarise+what+is+missing.');
   });
 
   it('rejects an unsafe workspace slug before making any call', async () => {

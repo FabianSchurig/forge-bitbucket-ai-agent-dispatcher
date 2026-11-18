@@ -65,6 +65,19 @@ jest.mock('@forge/react', () => {
       actual.createElement('div', null, children),
     Text: ({ children }: { children?: React.ReactNode }) =>
       actual.createElement('span', null, children),
+    TextArea: ({
+      value,
+      onChange,
+    }: {
+      value?: string;
+      onChange?: (e: { target: { value: string } }) => void;
+    }) =>
+      actual.createElement('textarea', {
+        'data-testid': 'prompt-field',
+        value: value ?? '',
+        onChange: (ev: React.ChangeEvent<HTMLTextAreaElement>) =>
+          onChange && onChange({ target: { value: ev.target.value } }),
+      }),
     Textfield: ({
       value,
       onChange,
@@ -136,6 +149,31 @@ describe('DispatchPanel', () => {
     expect(branchField.value).toBe('PROJ-7-fix-the-login-bug');
   });
 
+  it('keeps Dispatch disabled until a repository is chosen and a prompt written', async () => {
+    wireInvoke();
+    await act(async () => {
+      render(<DispatchPanel />);
+    });
+    await waitFor(() => screen.getByTestId('repo-select'));
+    const button = screen.getByText('Dispatch agent') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('repo-select'), { target: { value: 'ws/repo-a' } });
+    });
+    expect(button.disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('prompt-field'), { target: { value: '   ' } });
+    });
+    expect(button.disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('prompt-field'), { target: { value: 'Do it.' } });
+    });
+    expect(button.disabled).toBe(false);
+  });
+
   it('dispatches the agent and shows the returned pipeline link', async () => {
     wireInvoke();
     await act(async () => {
@@ -143,10 +181,13 @@ describe('DispatchPanel', () => {
     });
     await waitFor(() => screen.getByTestId('repo-select'));
 
-    // Choose a repository, then dispatch.
+    // Choose a repository, write the prompt, then dispatch.
     await act(async () => {
       fireEvent.change(screen.getByTestId('repo-select'), {
         target: { value: 'ws/repo-a' },
+      });
+      fireEvent.change(screen.getByTestId('prompt-field'), {
+        target: { value: 'Summarise what is missing.' },
       });
     });
     await act(async () => {
@@ -164,6 +205,7 @@ describe('DispatchPanel', () => {
         repoSlug: 'repo-a',
         issueKey: 'PROJ-7',
         branch: 'PROJ-7-fix-the-login-bug',
+        prompt: 'Summarise what is missing.',
       }),
     );
   });
@@ -178,6 +220,9 @@ describe('DispatchPanel', () => {
     await act(async () => {
       fireEvent.change(screen.getByTestId('repo-select'), {
         target: { value: 'ws/repo-a' },
+      });
+      fireEvent.change(screen.getByTestId('prompt-field'), {
+        target: { value: 'Summarise what is missing.' },
       });
     });
     await act(async () => {
