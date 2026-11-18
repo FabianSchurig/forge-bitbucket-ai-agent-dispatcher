@@ -91,7 +91,7 @@ without writing a PR comment.
    it never calls the Jira REST API — only the issue key from the context is
    used, and the developer can refine the branch name in the panel.
 3. `fetchRepositories` (resolver, `asUser`) lists the Bitbucket repositories the
-   user is a member of, populating the repository selector.
+   user can write to, populating the repository selector.
 4. The developer picks a repository, optionally edits the branch, and clicks
    **Dispatch agent**.
 5. `dispatchAgent` (resolver) creates the branch (idempotently) and triggers an
@@ -127,7 +127,11 @@ so it is *never* concatenated into shell commands or URLs:
   structure or break out of the variable.
 - The repository list read uses `asUser` so the caller's own Bitbucket
   permissions apply.
-- To restrict who can trigger these (compute-costly) runs, scope the panel with
+- The branch and pipeline writes run as the app, so `dispatchAgent` first checks,
+  as the user, that the caller has write access to the chosen repository, and
+  refuses otherwise. A Jira user cannot reach a repository they could not push
+  to themselves.
+- To restrict who can trigger these (compute-costly) runs further, scope the panel with
   manifest `displayConditions` and enforce branch-protection rules in Bitbucket
   so agents cannot push directly to protected branches.
 

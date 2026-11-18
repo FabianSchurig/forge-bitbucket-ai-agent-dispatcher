@@ -11,12 +11,12 @@
  * Authorisation
  * -------------
  * The repository list read uses api.asUser() so Forge enforces the caller's own
- * Bitbucket permissions — a user can only ever see repositories they are allowed
- * to see.  The branch-create + pipeline-trigger writes use api.asApp() because
- * the Forge app principal is what holds the write:repository / write:pipeline
- * scopes.  Note that any user who can view the issue can currently trigger these
- * writes; add manifest displayConditions (or a resolver-side permission check) if
- * tighter user-level gating is required.
+ * Bitbucket permissions — a user only ever sees repositories they can write to.
+ * The branch-create + pipeline-trigger writes use api.asApp() because the Forge
+ * app principal is what holds the write:repository / write:pipeline scopes.
+ * Because those writes run as the app, dispatchAgent first confirms (asUser)
+ * that the caller has write access to the target repository: the resolver
+ * accepts whatever repository a caller sends, not only what the panel listed.
  *
  * Jira access
  * -----------
@@ -89,17 +89,18 @@ resolver.define(
 );
 
 /**
- * Step 3.3 — Lists the Bitbucket repositories the calling user can access.
+ * Step 3.3 — Lists the Bitbucket repositories the calling user can dispatch to.
  *
- * Uses requestBitbucket (asUser) with `role=member` so only repositories the
- * user actually belongs to are returned, then flattens the response into a
- * compact shape for the panel's repository selector.
+ * Uses requestBitbucket (asUser) with `role=contributor` so only repositories
+ * the user has write access to are returned — the same check dispatchAgent
+ * enforces — then flattens the response into a compact shape for the panel's
+ * repository selector.
  */
 resolver.define('fetchRepositories', async (): Promise<RepositoryOption[]> => {
   const response = await api
     .asUser()
     .requestBitbucket(
-      route`/2.0/repositories?role=member&pagelen=100&sort=-updated_on&fields=values.slug,values.full_name,values.workspace.slug`,
+      route`/2.0/repositories?role=contributor&pagelen=100&sort=-updated_on&fields=values.slug,values.full_name,values.workspace.slug`,
     );
 
   if (!response.ok) {
@@ -155,6 +156,10 @@ resolver.define(
       // input. This throws CIProviderError, caught below.
       validateSlug(workspace, 'workspace slug', PROVIDER_NAME);
       validateSlug(repoSlug, 'repository slug', PROVIDER_NAME);
+
+      // Every call below runs as the app, so check the caller's own access
+      // before making any of them.
+      await assertUserCanWrite(workspace, repoSlug);
 
       // Use the caller's chosen branch (sanitised, preserving their intent) if
       // one was supplied, otherwise derive a safe branch from the issue.
@@ -217,6 +222,44 @@ resolver.define(
     }
   },
 );
+
+/**
+ * Throws unless the calling user has write access to the repository.
+ *
+ * Bitbucket's repository listing with `role=contributor` contains exactly the
+ * repositories the user can write to, so the target must appear in it.  The
+ * request runs asUser, so it is the user's permission that is checked, not the
+ * app's.  Anything other than a confirming answer — an error status included —
+ * refuses the dispatch.
+ */
+async function assertUserCanWrite(workspace: string, repoSlug: string): Promise<void> {
+  const fullName = `${workspace}/${repoSlug}`;
+  const query = `full_name="${fullName}"`;
+  const response = await api
+    .asUser()
+    .requestBitbucket(
+      route`/2.0/repositories/${workspace}?role=contributor&q=${query}&fields=values.full_name`,
+    );
+
+  if (!response.ok) {
+    throw new CIProviderError(
+      PROVIDER_NAME,
+      `Could not verify your access to ${fullName}: ${response.status}`,
+    );
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  const values = (data?.values as Array<Record<string, unknown>>) ?? [];
+  const canWrite = values.some(
+    (repo) => String(repo?.full_name ?? '').toLowerCase() === fullName.toLowerCase(),
+  );
+  if (!canWrite) {
+    throw new CIProviderError(
+      PROVIDER_NAME,
+      `You need write access to ${fullName} to dispatch an agent on it.`,
+    );
+  }
+}
 
 /**
  * Repository details resolved from a single Bitbucket repository lookup.

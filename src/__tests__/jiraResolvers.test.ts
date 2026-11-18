@@ -88,8 +88,12 @@ describe('dispatchAgent', () => {
     issueKey: 'PROJ-7',
     issueSummary: 'Fix the login bug',
   };
+  /** The asUser write-access check that precedes every dispatch. */
+  const canWrite = () => res({ values: [{ full_name: 'my-ws/my-repo' }] });
 
   it('creates the branch then triggers the pipeline and returns its id', async () => {
+    // 0. the caller's write access
+    mockRequestBitbucket.mockResolvedValueOnce(canWrite());
     // 1. repo details (for the base branch)
     mockRequestBitbucket.mockResolvedValueOnce(
       res({ mainbranch: { name: 'main' } }),
@@ -113,18 +117,24 @@ describe('dispatchAgent', () => {
     expect(result.pipelineId).toBe('{abc}');
     expect(result.buildUrl).toContain('my-ws/my-repo/pipelines/results/42');
 
+    // The access check asks Bitbucket for repositories the user can write to.
+    const accessCall = mockRequestBitbucket.mock.calls[0];
+    expect(String(accessCall[0])).toContain('/2.0/repositories/my-ws?role=contributor');
+    expect(String(accessCall[0])).toContain('full_name="my-ws/my-repo"');
+
     // Branch creation must POST to the refs/branches endpoint.
-    const branchCall = mockRequestBitbucket.mock.calls[1];
+    const branchCall = mockRequestBitbucket.mock.calls[2];
     expect(String(branchCall[0])).toContain('/refs/branches');
     expect(branchCall[1].method).toBe('POST');
 
     // Pipeline trigger must POST YAML to the pipelines endpoint.
-    const pipelineCall = mockRequestBitbucket.mock.calls[2];
+    const pipelineCall = mockRequestBitbucket.mock.calls[3];
     expect(String(pipelineCall[0])).toContain('/pipelines');
     expect(pipelineCall[1].headers['Content-Type']).toBe('application/yaml');
   });
 
   it('tolerates an already-existing branch (idempotent) and still triggers', async () => {
+    mockRequestBitbucket.mockResolvedValueOnce(canWrite());
     mockRequestBitbucket.mockResolvedValueOnce(res({ mainbranch: { name: 'main' } }));
     // Branch already exists → Bitbucket returns 409.
     mockRequestBitbucket.mockResolvedValueOnce(res({ error: 'exists' }, false, 409));
@@ -132,10 +142,11 @@ describe('dispatchAgent', () => {
 
     const result = (await invoke('dispatchAgent', payload)) as { success: boolean };
     expect(result.success).toBe(true);
-    expect(mockRequestBitbucket).toHaveBeenCalledTimes(3);
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(4);
   });
 
   it('returns a failure result (does not throw) when the pipeline trigger fails', async () => {
+    mockRequestBitbucket.mockResolvedValueOnce(canWrite());
     mockRequestBitbucket.mockResolvedValueOnce(res({ mainbranch: { name: 'main' } }));
     mockRequestBitbucket.mockResolvedValueOnce(res({}, true, 201));
     mockRequestBitbucket.mockResolvedValueOnce(res('boom', false, 500));
@@ -146,6 +157,26 @@ describe('dispatchAgent', () => {
     };
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/pipeline/i);
+  });
+
+  it('refuses a user without write access before the app writes anything', async () => {
+    mockRequestBitbucket.mockResolvedValueOnce(res({ values: [] }));
+
+    const result = (await invoke('dispatchAgent', payload)) as {
+      success: boolean;
+      message: string;
+    };
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/write access to my-ws\/my-repo/);
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the dispatch when the access check itself fails', async () => {
+    mockRequestBitbucket.mockResolvedValueOnce(res('unauthorized', false, 401));
+
+    const result = (await invoke('dispatchAgent', payload)) as { success: boolean };
+    expect(result.success).toBe(false);
+    expect(mockRequestBitbucket).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unsafe workspace slug before making any call', async () => {
