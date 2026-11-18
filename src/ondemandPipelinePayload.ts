@@ -43,15 +43,21 @@ export interface OndemandRequest {
 /**
  * Strict allowlist for Bitbucket workspace/repo slugs.
  * Bitbucket slugs are lowercase alphanumeric with '-', '_', '.'.
+ *
+ * Exported so other dispatch flows (e.g. the Jira issue-context dispatcher)
+ * validate slugs against exactly the same rule — a single source of truth for
+ * "what is a safe slug" prevents the two code paths from drifting apart.
  */
-const SLUG_RE = /^[a-z0-9][a-z0-9._-]*$/i;
+export const SLUG_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 /**
  * Allowlist for git branch names.  Allows the chars Bitbucket actually
  * accepts in refs (alphanumerics, '/', '-', '_', '.') but rejects the
  * obvious URL-injection vectors ('?', '&', '#', whitespace, etc).
+ *
+ * Exported for reuse by other dispatch flows (see SLUG_RE above).
  */
-const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+export const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 /**
  * Parses an "ondemandTargetRepo" config value of the form "{ws}/{repo}"
@@ -83,11 +89,18 @@ export function parseTargetRepo(raw: string): { workspace: string; repoSlug: str
 /**
  * Validates a branch name against the strict allowlist.
  * Throws CIProviderError if the value is unsafe to splice into the URL.
+ *
+ * @param branch       - The branch name to validate.
+ * @param providerName - Provider label used in the error message so each
+ *                       dispatch flow surfaces a recognisable error.
  */
-function validateBranch(branch: string): void {
+export function validateBranch(
+  branch: string,
+  providerName = 'Bitbucket Pipelines (on-demand)',
+): void {
   if (!branch || !BRANCH_RE.test(branch)) {
     throw new CIProviderError(
-      'Bitbucket Pipelines (on-demand)',
+      providerName,
       `Invalid target branch "${branch}". Branch names must start with an alphanumeric and may contain '-', '_', '.', '/'.`,
     );
   }
@@ -122,14 +135,58 @@ function validateVariableKey(key: string): void {
  * The fallback path uses the spoke workspace/repo slugs returned by
  * fetchRepositoryDetails(); validating them defends against malformed or
  * malicious data flowing in via the Bitbucket API response.
+ *
+ * @param slug         - The slug to validate.
+ * @param label        - Human-readable label used in the error message.
+ * @param providerName - Provider label used in the error message so each
+ *                       dispatch flow surfaces a recognisable error.
  */
-function validateSlug(slug: string, label: string): void {
+export function validateSlug(
+  slug: string,
+  label: string,
+  providerName = 'Bitbucket Pipelines (on-demand)',
+): void {
   if (!slug || !SLUG_RE.test(slug)) {
     throw new CIProviderError(
-      'Bitbucket Pipelines (on-demand)',
+      providerName,
       `Invalid ${label} "${slug}".`,
     );
   }
+}
+
+/**
+ * Appends admin-defined extra pipeline variables to an existing
+ * URLSearchParams as `variables[N].*` indexed entries, continuing the index
+ * sequence from `startIndex`.
+ *
+ * Shared by every dispatch flow (PR-comment on-demand and Jira issue-context)
+ * so the security-relevant rules live in exactly one place:
+ *   - Empty-key rows are skipped (the settings UI may emit blank placeholders).
+ *   - Keys are validated against the POSIX env-var grammar.
+ *   - The `secured` flag is only emitted when true to keep URLs tidy.
+ *
+ * @returns The next free index after the appended variables.
+ */
+export function appendPipelineVariables(
+  params: URLSearchParams,
+  startIndex: number,
+  pipelineVariables: AppConfig['pipelineVariables'] | undefined,
+): number {
+  let nextIndex = startIndex;
+  for (const variable of pipelineVariables ?? []) {
+    const key = (variable.key ?? '').trim();
+    if (!key) {
+      continue;
+    }
+    validateVariableKey(key);
+    params.append(`variables[${nextIndex}].key`, key);
+    params.append(`variables[${nextIndex}].value`, variable.value ?? '');
+    if (variable.secured) {
+      params.append(`variables[${nextIndex}].secured`, 'true');
+    }
+    nextIndex += 1;
+  }
+  return nextIndex;
 }
 
 /**
@@ -197,25 +254,9 @@ export function buildOndemandRequest(
 
   // -- Admin-defined extra variables -------------------------------------
   // These continue the same `variables[N].*` indexed sequence so Bitbucket
-  // sees one flat array of variables.  Empty-key rows are skipped (the
-  // settings UI may produce blank placeholder rows) and the secured flag
-  // is only emitted when true to keep URLs tidy.  Keys are validated
-  // against the standard env-var grammar to reject anything that could
-  // confuse the pipeline runner.
-  let nextIndex = variables.length;
-  for (const variable of config.pipelineVariables ?? []) {
-    const key = (variable.key ?? '').trim();
-    if (!key) {
-      continue;
-    }
-    validateVariableKey(key);
-    params.append(`variables[${nextIndex}].key`, key);
-    params.append(`variables[${nextIndex}].value`, variable.value ?? '');
-    if (variable.secured) {
-      params.append(`variables[${nextIndex}].secured`, 'true');
-    }
-    nextIndex += 1;
-  }
+  // sees one flat array of variables.  The shared appendPipelineVariables
+  // helper enforces the empty-key/secured/key-grammar rules in one place.
+  appendPipelineVariables(params, variables.length, config.pipelineVariables);
 
   return {
     targetWorkspace,
