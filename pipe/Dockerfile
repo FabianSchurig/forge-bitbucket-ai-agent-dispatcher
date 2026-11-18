@@ -70,7 +70,8 @@ RUN chmod +x /entrypoint.sh \
              /usr/local/bin/scripts/run-agent.sh \
              /usr/local/bin/scripts/validate-config.sh \
              /usr/local/bin/scripts/provision.sh \
-             /usr/local/bin/scripts/execute.sh
+             /usr/local/bin/scripts/execute.sh \
+             /usr/local/bin/scripts/otlp-trace.sh
 
 # Bitbucket Pipes convention: entrypoint reads PIPE_* env vars and exits with
 # the agent's exit code so Pipelines marks the step accordingly.

@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Tests the shell scripts the ai-agent-pipe image ships, on every change to
+# them, before publish-pipe.yml releases the image.
+# ---------------------------------------------------------------------------
+name: Test Pipe Scripts
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'pipe/scripts/**'
+      - 'pipe/test/**'
+      - '.github/workflows/test-pipe-scripts.yml'
+  pull_request:
+    paths:
+      - 'pipe/scripts/**'
+      - 'pipe/test/**'
+      - '.github/workflows/test-pipe-scripts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  otlp-trace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: otlp-trace.sh
+        run: pipe/test/otlp-trace/run.sh
+
+      # Debian bookworm ships jq 1.6, which many devcontainer base images still use.
+      - name: otlp-trace.sh on jq 1.6
+        run: |
+          docker run --rm -v "$PWD/pipe:/pipe:ro" debian:bookworm bash -c \
+            'apt-get update -qq && apt-get install -y -qq jq curl python3 >/dev/null && /pipe/test/otlp-trace/run.sh'

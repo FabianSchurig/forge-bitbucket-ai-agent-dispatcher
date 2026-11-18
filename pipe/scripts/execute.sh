@@ -20,6 +20,11 @@
 #   SOURCE_BRANCH, PR_ID           the branch checked out / the pull request
 #   AGENT_MODEL                    model override
 #   READ_ONLY                      "true" restricts bb-mcp to GET operations
+#   OTEL_EXPORTER_OTLP_ENDPOINT,   standard OpenTelemetry settings. When an
+#   OTEL_EXPORTER_OTLP_*,          endpoint is set, agents that export
+#   OTEL_SERVICE_NAME,             natively (Copilot) pick these up, and a
+#   OTEL_RESOURCE_ATTRIBUTES,      profile with AGENT_TRACE_FORMAT has its
+#   TRACEPARENT                    output turned into a trace by otlp-trace.sh.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -44,6 +49,14 @@ case "${READ_ONLY:-false}" in
     true|TRUE|True|1|yes) READ_ONLY=true ;;
     *)                    READ_ONLY=false ;;
 esac
+
+# Callers pass these as build args, which arrive as empty variables when
+# unused. Some exporters treat a set-but-empty endpoint as enabled.
+for otel_var in OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT \
+                OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_HEADERS \
+                OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT; do
+    [ -n "${!otel_var:-}" ] || unset "$otel_var"
+done
 
 # ---------------------------------------------------------------------------
 # Secrets. Read from the mount rather than the environment so they are never
@@ -225,7 +238,18 @@ if [ -n "${AGENT_MODEL:-}" ]; then
     MODEL_FLAG="--model=$AGENT_MODEL"
 fi
 
-echo "==> Running '$AGENT_COMMAND' (profile: $AGENT_TYPE, model: ${AGENT_MODEL:-default}, read-only: $READ_ONLY)"
+TELEMETRY_ENDPOINT="${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-${OTEL_EXPORTER_OTLP_ENDPOINT:-}}"
+echo "==> Running '$AGENT_COMMAND' (profile: $AGENT_TYPE, model: ${AGENT_MODEL:-default}, read-only: $READ_ONLY, telemetry: ${TELEMETRY_ENDPOINT:-off})"
+
+# The agent's raw output, traced when the profile names its format and an
+# OTLP endpoint is configured; otherwise unchanged.
+trace_stream() {
+    if [ -n "${AGENT_TRACE_FORMAT:-}" ] && [ -n "$TELEMETRY_ENDPOINT" ]; then
+        bash "$(dirname "${BASH_SOURCE[0]}")/otlp-trace.sh" "$AGENT_TRACE_FORMAT"
+    else
+        cat
+    fi
+}
 
 set +e
 if [ -n "${AGENT_OUTPUT_FILTER:-}" ]; then
@@ -233,12 +257,13 @@ if [ -n "${AGENT_OUTPUT_FILTER:-}" ]; then
     # never swallowed by the filter.
     # shellcheck disable=SC2086
     "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG \
+        | trace_stream \
         | jq -rR --unbuffered "(fromjson? // {raw: .}) | if .raw then .raw else ($AGENT_OUTPUT_FILTER) end"
     agent_status=${PIPESTATUS[0]}
 else
     # shellcheck disable=SC2086
-    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG
-    agent_status=$?
+    "$AGENT_COMMAND" -p "$(cat "$CONTEXT_FILE")" $AGENT_FLAGS $MODEL_FLAG | trace_stream
+    agent_status=${PIPESTATUS[0]}
 fi
 set -e
 

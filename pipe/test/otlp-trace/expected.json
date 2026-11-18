@@ -1,0 +1,470 @@
+{
+  "resource": [
+    {
+      "key": "service.name",
+      "value": {
+        "stringValue": "test-agent"
+      }
+    },
+    {
+      "key": "deployment.environment.name",
+      "value": {
+        "stringValue": "test"
+      }
+    },
+    {
+      "key": "vcs.repository.name",
+      "value": {
+        "stringValue": "acme/example"
+      }
+    }
+  ],
+  "scope": {
+    "name": "otlp-trace.sh",
+    "version": "1"
+  },
+  "spans": [
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-0",
+      "parentSpanId": "b7ad6b7169203331",
+      "name": "invoke_agent cursor",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "invoke_agent"
+          }
+        },
+        {
+          "key": "gen_ai.provider.name",
+          "value": {
+            "stringValue": "cursor"
+          }
+        },
+        {
+          "key": "gen_ai.agent.name",
+          "value": {
+            "stringValue": "cursor"
+          }
+        },
+        {
+          "key": "gen_ai.request.model",
+          "value": {
+            "stringValue": "Claude Opus 5.5 High"
+          }
+        },
+        {
+          "key": "gen_ai.conversation.id",
+          "value": {
+            "stringValue": "5d3c0a5e-1111-4c0e-9d7a-6b1f2b3c4d5e"
+          }
+        },
+        {
+          "key": "gen_ai.usage.input_tokens",
+          "value": {
+            "intValue": "120000"
+          }
+        },
+        {
+          "key": "gen_ai.usage.output_tokens",
+          "value": {
+            "intValue": "4200"
+          }
+        },
+        {
+          "key": "gen_ai.usage.cache_read.input_tokens",
+          "value": {
+            "intValue": "90000"
+          }
+        },
+        {
+          "key": "agent.tool_calls",
+          "value": {
+            "intValue": "8"
+          }
+        },
+        {
+          "key": "agent.result",
+          "value": {
+            "stringValue": "success"
+          }
+        }
+      ],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-1",
+      "parentSpanId": "span-0",
+      "name": "execute_tool read",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "read"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01READSKILL"
+          }
+        },
+        {
+          "key": "agent.skill.name",
+          "value": {
+            "stringValue": "bitbucket-pr-review"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "agent.skill.invoked",
+          "attributes": [
+            {
+              "key": "agent.skill.name",
+              "value": {
+                "stringValue": "bitbucket-pr-review"
+              }
+            }
+          ]
+        }
+      ],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-2",
+      "parentSpanId": "span-0",
+      "name": "execute_tool getMcpTools",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "getMcpTools"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01GETMCPTOOLS"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-3",
+      "parentSpanId": "span-0",
+      "name": "execute_tool bitbucket-bitbucket_pr",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "bitbucket-bitbucket_pr"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "extension"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01MCPGETPR"
+          }
+        },
+        {
+          "key": "mcp.method.name",
+          "value": {
+            "stringValue": "tools/call"
+          }
+        },
+        {
+          "key": "mcp.server.name",
+          "value": {
+            "stringValue": "bitbucket"
+          }
+        },
+        {
+          "key": "mcp.tool.name",
+          "value": {
+            "stringValue": "bitbucket_pr"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-4",
+      "parentSpanId": "span-0",
+      "name": "execute_tool bitbucket-bitbucket_pr",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "bitbucket-bitbucket_pr"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "extension"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01MCPCOMMENT"
+          }
+        },
+        {
+          "key": "mcp.method.name",
+          "value": {
+            "stringValue": "tools/call"
+          }
+        },
+        {
+          "key": "mcp.server.name",
+          "value": {
+            "stringValue": "bitbucket"
+          }
+        },
+        {
+          "key": "mcp.tool.name",
+          "value": {
+            "stringValue": "bitbucket_pr"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 2,
+        "message": "error"
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-5",
+      "parentSpanId": "span-0",
+      "name": "execute_tool shell",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "shell"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01SHELL"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-6",
+      "parentSpanId": "span-0",
+      "name": "execute_tool read",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "read"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01CPPSKILL"
+          }
+        },
+        {
+          "key": "agent.skill.name",
+          "value": {
+            "stringValue": "cpp-standards"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "agent.skill.invoked",
+          "attributes": [
+            {
+              "key": "agent.skill.name",
+              "value": {
+                "stringValue": "cpp-standards"
+              }
+            }
+          ]
+        }
+      ],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-7",
+      "parentSpanId": "span-0",
+      "name": "execute_tool todo_write",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "todo_write"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01FUNC"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 0
+      }
+    },
+    {
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "spanId": "span-8",
+      "parentSpanId": "span-0",
+      "name": "execute_tool grep",
+      "kind": 1,
+      "attributes": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": {
+            "stringValue": "execute_tool"
+          }
+        },
+        {
+          "key": "gen_ai.tool.name",
+          "value": {
+            "stringValue": "grep"
+          }
+        },
+        {
+          "key": "gen_ai.tool.type",
+          "value": {
+            "stringValue": "function"
+          }
+        },
+        {
+          "key": "gen_ai.tool.call.id",
+          "value": {
+            "stringValue": "toolu_01GREPOPEN"
+          }
+        }
+      ],
+      "events": [],
+      "status": {
+        "code": 2,
+        "message": "tool call did not complete"
+      }
+    }
+  ]
+}
