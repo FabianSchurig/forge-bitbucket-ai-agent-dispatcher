@@ -166,6 +166,32 @@ if [ -s "$MCP_CONFIG" ]; then
         "$MCP_CONFIG" "$RENDERED" > "$RENDERED.tmp"
     mv "$RENDERED.tmp" "$RENDERED"
 fi
+
+# Optional Bearer tokens for HTTP MCP servers in the merged config, as
+# <secret>:<server>. Such a server signs in through the browser by default,
+# which an unattended run cannot do; a token lets it authenticate instead.
+# Without the secret the server is left as configured. jq reads the token
+# from the secret file, so it is never on a command line.
+MCP_BEARER_SECRETS=(ATLASSIAN_MCP_API_KEY:atlassian)
+for entry in "${MCP_BEARER_SECRETS[@]}"; do
+    secret_name="${entry%%:*}"
+    server="${entry#*:}"
+    if [ ! -s "$SECRETS_DIR/$secret_name" ]; then
+        continue
+    fi
+    if ! jq -e --arg server "$server" \
+            '.mcpServers[$server] | objects | select(.type == "http" or .url != null)' \
+            "$RENDERED" >/dev/null; then
+        echo "WARN: $secret_name is set, but the MCP config has no HTTP server '$server'; it is not used." >&2
+        continue
+    fi
+    jq --arg server "$server" --rawfile token "$SECRETS_DIR/$secret_name" \
+        '.mcpServers[$server].headers = ((.mcpServers[$server].headers // {})
+            + {Authorization: ("Bearer " + ($token | gsub("^\\s+|\\s+$"; "")))})' \
+        "$RENDERED" > "$RENDERED.tmp"
+    mv "$RENDERED.tmp" "$RENDERED"
+    echo "==> MCP server '$server' authenticates with $secret_name."
+done
 cp "$RENDERED" "$MCP_CONFIG"
 chmod 600 "$MCP_CONFIG"
 

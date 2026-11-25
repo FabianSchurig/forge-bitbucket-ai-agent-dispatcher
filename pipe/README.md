@@ -89,6 +89,7 @@ sequenceDiagram
 | `BITBUCKET_USERNAME` | 🔒 | Optional Bitbucket username used with `BITBUCKET_TOKEN` for username/token auth. Omit it to use Bearer auth. `BB_USERNAME` is accepted as a legacy alias. |
 | `SSH_KEY` | ✅ 🔒 | Unencrypted SSH private key used to clone the spoke repository, as text or base64 of it. Only needed for an SSH clone URL. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 🔒 | OTLP request headers, typically the collector credential. `OTEL_EXPORTER_OTLP_TRACES_HEADERS` is accepted too. |
+| `ATLASSIAN_MCP_API_KEY` | 🔒 | Optional API key for the HTTP MCP server named `atlassian`, sent as `Authorization: Bearer <key>`; see [Skills and MCP servers](#skills-and-mcp-servers). |
 
 > 🔒 = **must** be configured as a *Secured* Bitbucket repository variable
 > so it is masked in build logs and only ever materialised on tmpfs at
@@ -270,6 +271,14 @@ behaves the same in all three places. A source repository's own
 configuration) into the MCP config the feature installed, so the other plugin
 servers stay available. The feature also installs bb-mcp, so `provision.sh`
 only installs it when the base image lacks it.
+
+An HTTP MCP server from the feature that signs in through the browser cannot
+do so in an unattended run. For the server named `atlassian`, `execute.sh`
+reads the optional secret `ATLASSIAN_MCP_API_KEY` and, when it is set, adds
+`Authorization: Bearer <key>` to that server's `headers`. A server's own
+configuration is untouched when the secret is absent, and the key is read from
+the secret file by `jq`, never passed on a command line or printed. Further
+`<secret>:<server>` pairs go into `MCP_BEARER_SECRETS` in `execute.sh`.
 
 With `READ_ONLY=true` in the environment, `execute.sh` starts bb-mcp with a
 GET-only configuration, so the agent can read the pull request but has no write

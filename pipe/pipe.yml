@@ -113,3 +113,6 @@ variables:
   OTEL_EXPORTER_OTLP_HEADERS:
     description: k=v,k2=v2 OTLP request headers, typically the collector credential. OTEL_EXPORTER_OTLP_TRACES_HEADERS is accepted too. Mounted as a secret, never a build arg.
     required: false
+  ATLASSIAN_MCP_API_KEY:
+    description: Optional API key sent as an Authorization Bearer header to the HTTP MCP server named atlassian, if the installed MCP config has one. Without it that server keeps its browser sign-in. Mounted as a secret, never a build arg.
+    required: false
