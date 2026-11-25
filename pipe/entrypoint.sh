@@ -112,6 +112,7 @@ bitbucket_username="$(pick_input BITBUCKET_USERNAME BB_USERNAME)"
 ssh_key="$(pick_input SSH_KEY)"
 otel_headers="$(pick_input OTEL_EXPORTER_OTLP_HEADERS)"
 otel_traces_headers="$(pick_input OTEL_EXPORTER_OTLP_TRACES_HEADERS)"
+atlassian_mcp_api_key="$(pick_input ATLASSIAN_MCP_API_KEY)"
 
 # ---------------------------------------------------------------------------
 # Validate required inputs / secrets up-front and fail fast with a clear
@@ -145,14 +146,16 @@ done
 # shellcheck disable=SC2046,SC2086
 unset $(input_names "$AGENT_SECRET_NAME" $AGENT_SECRET_ALIASES BITBUCKET_TOKEN BB_TOKEN \
             BITBUCKET_USERNAME BB_USERNAME SSH_KEY \
-            OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS)
+            OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS ATLASSIAN_MCP_API_KEY)
 
 export AI_AGENT_PIPE_SECRET_AGENT="$agent_secret" \
        AI_AGENT_PIPE_SECRET_BITBUCKET_TOKEN="$bitbucket_token" \
        AI_AGENT_PIPE_SECRET_BITBUCKET_USERNAME="$bitbucket_username" \
        AI_AGENT_PIPE_SECRET_SSH_KEY="$ssh_key" \
        AI_AGENT_PIPE_SECRET_OTEL_HEADERS="$otel_headers" \
-       AI_AGENT_PIPE_SECRET_OTEL_TRACES_HEADERS="$otel_traces_headers"
-unset agent_secret bitbucket_token bitbucket_username ssh_key otel_headers otel_traces_headers
+       AI_AGENT_PIPE_SECRET_OTEL_TRACES_HEADERS="$otel_traces_headers" \
+       AI_AGENT_PIPE_SECRET_ATLASSIAN_MCP_API_KEY="$atlassian_mcp_api_key"
+unset agent_secret bitbucket_token bitbucket_username ssh_key otel_headers otel_traces_headers \
+      atlassian_mcp_api_key
 
 exec "$SCRIPTS_DIR/run-agent.sh"
