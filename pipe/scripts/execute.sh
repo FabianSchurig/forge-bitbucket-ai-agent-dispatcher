@@ -20,6 +20,10 @@
 #   SOURCE_BRANCH, PR_ID           the branch checked out / the pull request
 #   AGENT_MODEL                    model override
 #   READ_ONLY                      "true" restricts bb-mcp to GET operations
+#   JAMA_MCP_GATEWAY_URL           Streamable HTTP endpoint of a Jama MCP
+#                                  gateway; with the JAMA_MCP_GATEWAY_TOKEN
+#                                  secret it replaces the server JAMA_MCP_SERVER
+#                                  (default werfen-jama)
 #   OTEL_EXPORTER_OTLP_ENDPOINT,   standard OpenTelemetry settings. When an
 #   OTEL_EXPORTER_OTLP_*,          endpoint is set, a profile with
 #   OTEL_SERVICE_NAME,             AGENT_OTEL_NATIVE=true (Copilot) exports
@@ -191,6 +195,39 @@ for entry in "${MCP_BEARER_SECRETS[@]}"; do
         "$RENDERED" > "$RENDERED.tmp"
     mv "$RENDERED.tmp" "$RENDERED"
     echo "==> MCP server '$server' authenticates with $secret_name."
+done
+
+# Optional gateways for MCP servers in the merged config, as
+# <secret>:<URL variable>:<server>. Such a server runs locally and signs in
+# through the browser, which an unattended run cannot do; with the secret and
+# the URL set it is replaced by the gateway's HTTP endpoint, authenticated with
+# the secret as a Bearer token. Without the secret the server is left as
+# configured. jq reads the token from the secret file, so it is never on a
+# command line.
+MCP_GATEWAY_SECRETS=("JAMA_MCP_GATEWAY_TOKEN:JAMA_MCP_GATEWAY_URL:${JAMA_MCP_SERVER:-werfen-jama}")
+for entry in "${MCP_GATEWAY_SECRETS[@]}"; do
+    secret_name="${entry%%:*}"
+    rest="${entry#*:}"
+    url_var="${rest%%:*}"
+    server="${rest#*:}"
+    url="${!url_var:-}"
+    if [ ! -s "$SECRETS_DIR/$secret_name" ]; then
+        continue
+    fi
+    if [[ ! "$url" =~ ^https?://[^[:space:]]+$ ]]; then
+        echo "WARN: $secret_name is set, but $url_var is not an http(s) URL; it is not used." >&2
+        continue
+    fi
+    if ! jq -e --arg server "$server" '.mcpServers[$server] | objects' "$RENDERED" >/dev/null; then
+        echo "WARN: $secret_name is set, but the MCP config has no server '$server'; it is not used." >&2
+        continue
+    fi
+    jq --arg server "$server" --arg url "$url" --rawfile token "$SECRETS_DIR/$secret_name" \
+        '.mcpServers[$server] = {type: "http", url: $url,
+            headers: {Authorization: ("Bearer " + ($token | gsub("^\\s+|\\s+$"; "")))}}' \
+        "$RENDERED" > "$RENDERED.tmp"
+    mv "$RENDERED.tmp" "$RENDERED"
+    echo "==> MCP server '$server' uses the gateway at $url with $secret_name."
 done
 cp "$RENDERED" "$MCP_CONFIG"
 chmod 600 "$MCP_CONFIG"

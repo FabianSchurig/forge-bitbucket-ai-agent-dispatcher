@@ -70,7 +70,8 @@ for name in SOURCE_WORKSPACE SOURCE_REPO SOURCE_BRANCH PR_ID COMMENT_TEXT COMMEN
             AGENT_TYPE AGENT_MODEL READ_ONLY AGENT_FEATURE AGENT_PLUGINS \
             DEVCONTAINER_CONFIG SOURCE_CLONE_URL SSH_KNOWN_HOSTS \
             OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT \
-            OTEL_EXPORTER_OTLP_PROTOCOL OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT; do
+            OTEL_EXPORTER_OTLP_PROTOCOL OTEL_SERVICE_NAME OTEL_RESOURCE_ATTRIBUTES TRACEPARENT \
+            JAMA_MCP_GATEWAY_URL JAMA_MCP_SERVER; do
     value="$(pick_input "$name")"
     export "$name=$value"
 done
@@ -113,6 +114,7 @@ ssh_key="$(pick_input SSH_KEY)"
 otel_headers="$(pick_input OTEL_EXPORTER_OTLP_HEADERS)"
 otel_traces_headers="$(pick_input OTEL_EXPORTER_OTLP_TRACES_HEADERS)"
 atlassian_mcp_api_key="$(pick_input ATLASSIAN_MCP_API_KEY)"
+jama_mcp_gateway_token="$(pick_input JAMA_MCP_GATEWAY_TOKEN)"
 
 # ---------------------------------------------------------------------------
 # Validate required inputs / secrets up-front and fail fast with a clear
@@ -146,7 +148,8 @@ done
 # shellcheck disable=SC2046,SC2086
 unset $(input_names "$AGENT_SECRET_NAME" $AGENT_SECRET_ALIASES BITBUCKET_TOKEN BB_TOKEN \
             BITBUCKET_USERNAME BB_USERNAME SSH_KEY \
-            OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS ATLASSIAN_MCP_API_KEY)
+            OTEL_EXPORTER_OTLP_HEADERS OTEL_EXPORTER_OTLP_TRACES_HEADERS ATLASSIAN_MCP_API_KEY \
+            JAMA_MCP_GATEWAY_TOKEN)
 
 export AI_AGENT_PIPE_SECRET_AGENT="$agent_secret" \
        AI_AGENT_PIPE_SECRET_BITBUCKET_TOKEN="$bitbucket_token" \
@@ -154,8 +157,9 @@ export AI_AGENT_PIPE_SECRET_AGENT="$agent_secret" \
        AI_AGENT_PIPE_SECRET_SSH_KEY="$ssh_key" \
        AI_AGENT_PIPE_SECRET_OTEL_HEADERS="$otel_headers" \
        AI_AGENT_PIPE_SECRET_OTEL_TRACES_HEADERS="$otel_traces_headers" \
-       AI_AGENT_PIPE_SECRET_ATLASSIAN_MCP_API_KEY="$atlassian_mcp_api_key"
+       AI_AGENT_PIPE_SECRET_ATLASSIAN_MCP_API_KEY="$atlassian_mcp_api_key" \
+       AI_AGENT_PIPE_SECRET_JAMA_MCP_GATEWAY_TOKEN="$jama_mcp_gateway_token"
 unset agent_secret bitbucket_token bitbucket_username ssh_key otel_headers otel_traces_headers \
-      atlassian_mcp_api_key
+      atlassian_mcp_api_key jama_mcp_gateway_token
 
 exec "$SCRIPTS_DIR/run-agent.sh"
