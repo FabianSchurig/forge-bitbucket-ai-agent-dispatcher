@@ -10,7 +10,8 @@
 #   2. The source repository's devcontainer builds, its lifecycle commands
 #      replay, and the agent runs as its remoteUser with its secret, the
 #      Bitbucket token in the MCP config, read-only mode, the optional MCP API
-#      key as a Bearer header and a prompt carrying the repository coordinates.
+#      key as a Bearer header, the optional Jama gateway in place of the local
+#      Jama server and a prompt carrying the repository coordinates.
 #   3. The devcontainer configuration of the branch under review cannot read
 #      a secret through ${localEnv:...}.
 #   4. No secret survives into the final image, and the agent's exit status
@@ -49,6 +50,7 @@ AGENT_TOKEN="e2e-agent-token-a1b2c3"
 BB_TOKEN="e2e-bitbucket-token-d4e5f6"
 OTEL_HEADERS="authorization=Bearer%20e2e-otel-token-g7h8i9"
 MCP_API_KEY="e2e-mcp-api-key-p7q8r9"
+GATEWAY_TOKEN="e2e-gateway-token-s1t2u3"
 ssh-keygen -q -t ed25519 -N '' -C e2e -f "$WORK/id_e2e"
 SSH_KEY_B64="$(base64 -w0 "$WORK/id_e2e")"
 SSH_KEY_MARKER="$(sed -n 2p "$WORK/id_e2e" | cut -c1-24)"
@@ -59,7 +61,8 @@ SSH_KEY_MARKER="$(sed -n 2p "$WORK/id_e2e" | cut -c1-24)"
 # ---------------------------------------------------------------------------
 PROFILE="$WORK/profile"
 mkdir -p "$PROFILE"
-jq '.mcpServers.atlassian = {type: "http", url: "https://mcp.example.invalid/mcp"}' \
+jq '.mcpServers.atlassian = {type: "http", url: "https://mcp.example.invalid/mcp"}
+    | .mcpServers["werfen-jama"] = {command: "jama-mcp-local"}' \
     "$PIPE_DIR/config/agents/cursor/mcp-config.json" > "$PROFILE/mcp-config.json"
 cat > "$PROFILE/agent.env" <<'EOF'
 AGENT_COMMAND="e2e-agent"
@@ -81,6 +84,7 @@ echo "E2E_SECRET=${E2E_AGENT_TOKEN:0:9}"
 echo "E2E_MCP_TOKEN=$(jq -r '.mcpServers.bitbucket.env.BITBUCKET_TOKEN // "missing"' "$mcp" | cut -c1-13)"
 echo "E2E_MCP_READONLY=$(jq -r '.mcpServers.bitbucket.args | index("-config") != null' "$mcp")"
 echo "E2E_MCP_BEARER=$(jq -r '.mcpServers.atlassian.headers.Authorization // "missing"' "$mcp" | cut -c1-14)"
+echo "E2E_JAMA_GATEWAY=$(jq -r '.mcpServers["werfen-jama"] | "\(.url) \(.headers.Authorization // "missing")"' "$mcp" | cut -c1-49)"
 echo "E2E_OTEL_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:0:13}"
 # Not JSON, a JSON array and a JSON event: the output filter must survive all three.
 echo '[1, 2]'
@@ -102,9 +106,9 @@ mkdir -p "$SOURCE/.devcontainer"
 # E2E_CANARY is an ordinary variable: it shows the probe does read the environment.
 probe=""
 for name in E2E_CANARY E2E_AGENT_TOKEN PIPE_INPUT_E2E_AGENT_TOKEN BITBUCKET_TOKEN SSH_KEY OTEL_EXPORTER_OTLP_HEADERS \
-            ATLASSIAN_MCP_API_KEY AI_AGENT_PIPE_SECRET_AGENT AI_AGENT_PIPE_SECRET_BITBUCKET_TOKEN \
-            AI_AGENT_PIPE_SECRET_SSH_KEY AI_AGENT_PIPE_SECRET_OTEL_HEADERS \
-            AI_AGENT_PIPE_SECRET_ATLASSIAN_MCP_API_KEY; do
+            ATLASSIAN_MCP_API_KEY JAMA_MCP_GATEWAY_TOKEN AI_AGENT_PIPE_SECRET_AGENT \
+            AI_AGENT_PIPE_SECRET_BITBUCKET_TOKEN AI_AGENT_PIPE_SECRET_SSH_KEY AI_AGENT_PIPE_SECRET_OTEL_HEADERS \
+            AI_AGENT_PIPE_SECRET_ATLASSIAN_MCP_API_KEY AI_AGENT_PIPE_SECRET_JAMA_MCP_GATEWAY_TOKEN; do
     probe+="\${localEnv:$name}"
 done
 jq -n --arg probe "$probe" '{
@@ -140,7 +144,8 @@ run_pipe() {
         -e PR_ID=42 -e READ_ONLY=true \
         -e PIPE_INPUT_E2E_AGENT_TOKEN="$AGENT_TOKEN" -e BITBUCKET_TOKEN="$BB_TOKEN" \
         -e OTEL_EXPORTER_OTLP_HEADERS="$OTEL_HEADERS" -e SSH_KEY="$SSH_KEY_B64" \
-        -e ATLASSIAN_MCP_API_KEY="$MCP_API_KEY" \
+        -e ATLASSIAN_MCP_API_KEY="$MCP_API_KEY" -e JAMA_MCP_GATEWAY_TOKEN="$GATEWAY_TOKEN" \
+        -e JAMA_MCP_GATEWAY_URL=https://jama.example.invalid/mcp \
         "$@" "$PIPE_IMAGE" 2>&1
 }
 
@@ -194,6 +199,7 @@ check "the agent receives its profile's secret" 'E2E_SECRET=e2e-agent'
 check "the MCP config carries the Bitbucket token" 'E2E_MCP_TOKEN=e2e-bitbucket'
 check "READ_ONLY reaches bb-mcp" 'E2E_MCP_READONLY=true'
 check "the MCP API key reaches the atlassian server as a Bearer header" 'E2E_MCP_BEARER=Bearer e2e-mcp'
+check "the Jama gateway replaces the local Jama server" 'E2E_JAMA_GATEWAY=https://jama.example.invalid/mcp Bearer e2e-gate'
 check "OTLP headers reach the agent as a secret" 'E2E_OTEL_HEADERS=authorization'
 check "the output filter survives non-object JSON" 'E2E_RESULT=done'
 check "the prompt names the repository" 'Repository: e2e-workspace/source'
@@ -207,7 +213,7 @@ else
     fail "a secret reached the devcontainer build: $(grep E2E_PROBE "$WORK/run.log")"
 fi
 
-for secret in "$AGENT_TOKEN" "$BB_TOKEN" "e2e-otel-token" "$MCP_API_KEY" "$SSH_KEY_MARKER"; do
+for secret in "$AGENT_TOKEN" "$BB_TOKEN" "e2e-otel-token" "$MCP_API_KEY" "$GATEWAY_TOKEN" "$SSH_KEY_MARKER"; do
     if grep -qF -- "$secret" "$WORK/run.log"; then fail "a secret was printed to the log"; fi
 done
 
@@ -217,7 +223,7 @@ if docker image inspect "ai-agent-pipe/agent:$SOURCE_IMAGE_TAG-run" >/dev/null 2
     docker export "$cid" -o "$WORK/fs.tar"
     docker rm "$cid" >/dev/null
     docker image inspect "ai-agent-pipe/agent:$SOURCE_IMAGE_TAG-run" > "$WORK/inspect.json"
-    if grep -a -q -e "$AGENT_TOKEN" -e "$BB_TOKEN" -e "e2e-otel-token" -e "$MCP_API_KEY" "$WORK/fs.tar" "$WORK/inspect.json"; then
+    if grep -a -q -e "$AGENT_TOKEN" -e "$BB_TOKEN" -e "e2e-otel-token" -e "$MCP_API_KEY" -e "$GATEWAY_TOKEN" "$WORK/fs.tar" "$WORK/inspect.json"; then
         fail "a secret survived into the final image"
     else
         pass "no secret in the final image's filesystem or config"

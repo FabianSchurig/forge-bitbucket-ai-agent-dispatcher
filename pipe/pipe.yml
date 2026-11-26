@@ -89,6 +89,14 @@ variables:
     description: OTLP/HTTP base URL; turns OpenTelemetry tracing of the agent run on. OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL, OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES and TRACEPARENT are passed through too.
     required: false
     default: ""
+  JAMA_MCP_GATEWAY_URL:
+    description: Streamable HTTP endpoint of a Jama MCP gateway. With JAMA_MCP_GATEWAY_TOKEN it replaces the Jama MCP server of the installed MCP config.
+    required: false
+    default: ""
+  JAMA_MCP_SERVER:
+    description: Name of the Jama MCP server that JAMA_MCP_GATEWAY_URL replaces. Defaults to werfen-jama.
+    required: false
+    default: ""
 
   # --- Secrets ----------------------------------------------------------
   # These MUST be marked as "Secured" in the Bitbucket repository variables
@@ -115,4 +123,7 @@ variables:
     required: false
   ATLASSIAN_MCP_API_KEY:
     description: Optional API key sent as an Authorization Bearer header to the HTTP MCP server named atlassian, if the installed MCP config has one. Without it that server keeps its browser sign-in. Mounted as a secret, never a build arg.
+    required: false
+  JAMA_MCP_GATEWAY_TOKEN:
+    description: Optional Jama MCP gateway token. With JAMA_MCP_GATEWAY_URL the Jama MCP server of the installed MCP config is replaced by the gateway, sent this token as an Authorization Bearer header. Mounted as a secret, never a build arg.
     required: false

@@ -83,6 +83,7 @@ sequenceDiagram
 | `DEVCONTAINER_CONFIG` |  | `devcontainer.json` to build, relative to the repository root. Found automatically at `.devcontainer/devcontainer.json`, `.devcontainer.json`, or a single `.devcontainer/<name>/devcontainer.json`; required when there are several. |
 | `SOURCE_CLONE_URL` |  | Clone URL; defaults to `git@bitbucket.org:SOURCE_WORKSPACE/SOURCE_REPO.git`. `SSH_KNOWN_HOSTS` adds host keys for another host. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` and friends |  | Turn on tracing of the agent run; see [Tracing with OpenTelemetry](#tracing-with-opentelemetry). |
+| `JAMA_MCP_GATEWAY_URL` |  | Streamable HTTP endpoint of a Jama MCP gateway; with `JAMA_MCP_GATEWAY_TOKEN` it replaces the local Jama MCP server (`JAMA_MCP_SERVER`, default `werfen-jama`); see [Skills and MCP servers](#skills-and-mcp-servers). |
 | `COPILOT_GITHUB_TOKEN` | ✅ 🔒 | For `copilot`: a fine-grained PAT or OAuth token (Copilot ignores anything else). `COPILOT_TOKEN` is accepted as a legacy alias. |
 | `CURSOR_API_KEY` | ✅ 🔒 | For `cursor`: a Cursor API key. |
 | `BITBUCKET_TOKEN` | ✅ 🔒 | Bitbucket API token used by bb-mcp. With `BITBUCKET_USERNAME` it uses username/token auth; without a username it uses Bearer auth. `BB_TOKEN` is accepted as a legacy alias. |
@@ -90,6 +91,7 @@ sequenceDiagram
 | `SSH_KEY` | ✅ 🔒 | Unencrypted SSH private key used to clone the spoke repository, as text or base64 of it. Only needed for an SSH clone URL. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 🔒 | OTLP request headers, typically the collector credential. `OTEL_EXPORTER_OTLP_TRACES_HEADERS` is accepted too. |
 | `ATLASSIAN_MCP_API_KEY` | 🔒 | Optional API key for the HTTP MCP server named `atlassian`, sent as `Authorization: Bearer <key>`; see [Skills and MCP servers](#skills-and-mcp-servers). |
+| `JAMA_MCP_GATEWAY_TOKEN` | 🔒 | Optional Jama MCP gateway token, sent to `JAMA_MCP_GATEWAY_URL` as `Authorization: Bearer <token>`. |
 
 > 🔒 = **must** be configured as a *Secured* Bitbucket repository variable
 > so it is masked in build logs and only ever materialised on tmpfs at
@@ -279,6 +281,17 @@ reads the optional secret `ATLASSIAN_MCP_API_KEY` and, when it is set, adds
 configuration is untouched when the secret is absent, and the key is read from
 the secret file by `jq`, never passed on a command line or printed. Further
 `<secret>:<server>` pairs go into `MCP_BEARER_SECRETS` in `execute.sh`.
+
+A stdio MCP server that signs in through the browser, such as the local Jama
+server (`werfen-jama`, or the name in `JAMA_MCP_SERVER`), can instead be
+replaced by a gateway that speaks Streamable HTTP. When the secret
+`JAMA_MCP_GATEWAY_TOKEN` and `JAMA_MCP_GATEWAY_URL` are both set and the merged
+config has that server, `execute.sh` replaces it with
+`{"type": "http", "url": <URL>, "headers": {"Authorization": "Bearer <token>"}}`.
+What the agent can then read is decided by the gateway account the token
+belongs to. Without the secret the server is left as configured; a secret
+without a URL or without the server is unused, with a warning. Further
+`<secret>:<URL variable>:<server>` entries go into `MCP_GATEWAY_SECRETS`.
 
 With `READ_ONLY=true` in the environment, `execute.sh` starts bb-mcp with a
 GET-only configuration, so the agent can read the pull request but has no write
